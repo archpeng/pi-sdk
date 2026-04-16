@@ -62,6 +62,7 @@ export function buildPhasePrompt(phase: AutopilotPhase, context: AutopilotPrompt
     `Current cycle: ${context.currentCycle}/${context.maxExecutionCyclesPerWave}`,
     "Recent autopilot reports:",
     formatRecentReports(context.recentReports),
+    ...(context.substrateContext && context.substrateContext.length > 0 ? ["", ...context.substrateContext] : []),
     "",
     protocol(phase),
     "",

@@ -55,6 +55,7 @@ export interface AutopilotPromptContext {
   currentCycle: number;
   maxExecutionCyclesPerWave: number;
   recentReports: AutopilotReport[];
+  substrateContext?: string[] | undefined;
 }
 
 export interface AutopilotRunOptions {
@@ -67,6 +68,11 @@ export interface AutopilotRunOptions {
   ephemeral?: boolean | undefined;
   agentDir?: string | undefined;
   stream?: boolean | undefined;
+  substrateMode?: string | undefined;
+  planDocsPath?: string | undefined;
+  bbMemoryUrl?: string | undefined;
+  bbGovernUrl?: string | undefined;
+  bbToolsUrl?: string | undefined;
 }
 
 export interface AutopilotRunSummary {
@@ -74,6 +80,7 @@ export interface AutopilotRunSummary {
   reports: AutopilotReport[];
   sessionFile?: string | undefined;
   wavesAttempted: number;
+  warnings: string[];
 }
 
 const PHASE_SET = new Set<string>(AUTOPILOT_PHASES);

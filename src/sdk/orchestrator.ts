@@ -9,6 +9,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@mariozechner/pi-coding-agent";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,9 +30,20 @@ import {
   type SupportedThinkingLevel,
   isAutopilotToolDetails,
 } from "../shared/types.js";
+import {
+  buildPhaseHydrationSections,
+  buildRawPhaseEvidence,
+  createAutopilotSubstrate,
+  loadRunWorkspaceSnapshot,
+  preparePhaseHydration,
+  resolveAutopilotSubstrateConfig,
+  setRuntimeSubstrate,
+  type AutopilotSubstrate,
+  type RunWorkspaceSnapshot,
+} from "../substrate/index.js";
 
 function printUsage(): void {
-  console.log(`pi-sdk-autopilot\n\nUsage:\n  pi-sdk-autopilot --goal "<objective>" [options]\n\nOptions:\n  --goal <text>         Required objective for the autopilot run\n  --cwd <path>          Repo to operate on (default: current working directory)\n  --model <provider/id> Optional Pi model identifier\n  --thinking <level>    off|minimal|low|medium|high|xhigh (default: ${DEFAULT_AUTOPILOT_THINKING_LEVEL})\n  --max-waves <n>       Maximum waves to attempt (default: ${DEFAULT_AUTOPILOT_MAX_WAVES})\n  --max-cycles <n>      Maximum execute/review cycles per wave (default: ${DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE})\n  --agent-dir <path>    Override Pi agent directory\n  --ephemeral           Use an in-memory session instead of persisted sessions\n  --quiet               Suppress assistant text streaming to stdout\n  --help                Show this help\n`);
+  console.log(`pi-sdk-autopilot\n\nUsage:\n  pi-sdk-autopilot --goal "<objective>" [options]\n\nOptions:\n  --goal <text>          Required objective for the autopilot run\n  --cwd <path>           Repo to operate on (default: current working directory)\n  --model <provider/id>  Optional Pi model identifier\n  --thinking <level>     off|minimal|low|medium|high|xhigh (default: ${DEFAULT_AUTOPILOT_THINKING_LEVEL})\n  --max-waves <n>        Maximum waves to attempt (default: ${DEFAULT_AUTOPILOT_MAX_WAVES})\n  --max-cycles <n>       Maximum execute/review cycles per wave (default: ${DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE})\n  --substrate <mode>     local|bb (default: local)\n  --plan-docs <path>     Override docs/plan path used for BB workspace sync\n  --bb-memory-url <url>  Override BB memory MCP endpoint\n  --bb-govern-url <url>  Override BB govern MCP endpoint\n  --bb-tools-url <url>   Override BB tools MCP endpoint\n  --agent-dir <path>     Override Pi agent directory\n  --ephemeral            Use an in-memory session instead of persisted sessions\n  --quiet                Suppress assistant text streaming to stdout\n  --help                 Show this help\n`);
 }
 
 function parsePositiveInt(value: string, flag: string): number {
@@ -78,6 +90,11 @@ function parseCliArgs(argv = process.argv.slice(2)): AutopilotRunOptions | null 
       cwd: { type: "string" },
       model: { type: "string" },
       thinking: { type: "string" },
+      substrate: { type: "string" },
+      "plan-docs": { type: "string" },
+      "bb-memory-url": { type: "string" },
+      "bb-govern-url": { type: "string" },
+      "bb-tools-url": { type: "string" },
       "max-waves": { type: "string" },
       "max-cycles": { type: "string" },
       "agent-dir": { type: "string" },
@@ -103,6 +120,11 @@ function parseCliArgs(argv = process.argv.slice(2)): AutopilotRunOptions | null 
       values["max-cycles"] ?? String(DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE),
       "--max-cycles",
     ),
+    substrateMode: values.substrate,
+    planDocsPath: values["plan-docs"] ? path.resolve(values["plan-docs"]) : undefined,
+    bbMemoryUrl: values["bb-memory-url"],
+    bbGovernUrl: values["bb-govern-url"],
+    bbToolsUrl: values["bb-tools-url"],
     agentDir: values["agent-dir"] ? path.resolve(values["agent-dir"]) : undefined,
     ephemeral: values.ephemeral,
     stream: !values.quiet,
@@ -126,6 +148,51 @@ function resolveModel(modelRegistry: ModelRegistry, spec: string | undefined) {
   return modelRegistry.find(provider, id);
 }
 
+function recordWarning(warnings: string[], warning: string): void {
+  warnings.push(warning);
+  console.error(`[substrate] ${warning}`);
+}
+
+function createTaskId(goal: string, cwd: string): string {
+  return `autopilot:${createHash("sha1").update(`${cwd}\u0000${goal}`).digest("hex").slice(0, 12)}`;
+}
+
+async function persistPhaseEvidence(
+  substrate: AutopilotSubstrate,
+  options: AutopilotRunOptions,
+  sessionId: string,
+  report: AutopilotReport,
+  currentWave: number,
+  currentCycle: number,
+  warnings: string[],
+): Promise<void> {
+  const result = await substrate.memory.store({
+    content: buildRawPhaseEvidence({
+      goal: options.goal,
+      cwd: options.cwd,
+      report,
+      wave: currentWave,
+      cycle: currentCycle,
+    }),
+    toolName: "pi-sdk-autopilot",
+    memoryClass: "tool_episodic",
+    effectSummary: `${report.phase}/${report.status}: ${report.summary}`,
+    sessionId,
+    taskId: createTaskId(options.goal, options.cwd),
+    metadata: {
+      phase: report.phase,
+      status: report.status,
+      wave: String(currentWave),
+      cycle: String(currentCycle),
+      cwd: options.cwd,
+    },
+  });
+
+  if (!result.ok) {
+    recordWarning(warnings, result.summary);
+  }
+}
+
 async function runPhase(
   session: Awaited<ReturnType<typeof createAgentSession>>["session"],
   reports: AutopilotReport[],
@@ -133,8 +200,25 @@ async function runPhase(
   options: AutopilotRunOptions,
   currentWave: number,
   currentCycle: number,
+  substrate: AutopilotSubstrate,
+  runWorkspace: RunWorkspaceSnapshot,
+  warnings: string[],
 ): Promise<AutopilotReport> {
   const baseline = reports.length;
+  const hydration = await preparePhaseHydration({
+    substrate,
+    phase,
+    goal: options.goal,
+    currentWave,
+    currentCycle,
+    recentReports: reports.slice(-6),
+    sessionId: session.sessionId,
+    runWorkspace,
+  });
+  for (const warning of hydration.warnings) {
+    recordWarning(warnings, warning);
+  }
+
   const prompt = buildPhasePrompt(phase, {
     goal: options.goal,
     currentWave,
@@ -142,6 +226,7 @@ async function runPhase(
     currentCycle,
     maxExecutionCyclesPerWave: options.maxExecutionCyclesPerWave,
     recentReports: reports.slice(-6),
+    substrateContext: buildPhaseHydrationSections(phase, hydration),
   });
 
   console.error(`\n=== ${phase.toUpperCase()} | wave ${currentWave} | cycle ${currentCycle} ===`);
@@ -162,12 +247,30 @@ async function runPhase(
   }
 
   console.error(formatAutopilotReport(report));
+  await persistPhaseEvidence(substrate, options, session.sessionId, report, currentWave, currentCycle, warnings);
   return report;
 }
 
 export async function runAutopilot(options: AutopilotRunOptions): Promise<AutopilotRunSummary> {
   const cwd = path.resolve(options.cwd);
   const agentDir = options.agentDir ?? getAgentDir();
+  const substrateConfig = resolveAutopilotSubstrateConfig({
+    cwd,
+    ...(options.substrateMode ? { mode: options.substrateMode } : {}),
+    ...(options.planDocsPath ? { planDocsPath: options.planDocsPath } : {}),
+    ...(options.bbMemoryUrl ? { bbMemoryUrl: options.bbMemoryUrl } : {}),
+    ...(options.bbGovernUrl ? { bbGovernUrl: options.bbGovernUrl } : {}),
+    ...(options.bbToolsUrl ? { bbToolsUrl: options.bbToolsUrl } : {}),
+  });
+  const substrate = createAutopilotSubstrate(substrateConfig);
+  setRuntimeSubstrate(substrate);
+
+  const warnings: string[] = [];
+  const runWorkspace = await loadRunWorkspaceSnapshot(substrate);
+  for (const warning of runWorkspace.warnings) {
+    recordWarning(warnings, warning);
+  }
+
   const { authStorage, modelRegistry } = createAuthAndRegistry(agentDir);
   const settingsManager = SettingsManager.create(cwd, agentDir);
   const resourceLoader = new DefaultResourceLoader({
@@ -216,7 +319,7 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
   let wavesAttempted = 0;
 
   try {
-    const masterPlan = await runPhase(session, reports, "master_plan", options, 1, 1);
+    const masterPlan = await runPhase(session, reports, "master_plan", options, 1, 1, substrate, runWorkspace, warnings);
     if (masterPlan.status === "done") {
       overallDone = true;
     }
@@ -224,7 +327,7 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
     for (let wave = 1; wave <= options.maxWaves && !overallDone; wave += 1) {
       wavesAttempted = wave;
 
-      const wavePlan = await runPhase(session, reports, "wave_plan", options, wave, 1);
+      const wavePlan = await runPhase(session, reports, "wave_plan", options, wave, 1, substrate, runWorkspace, warnings);
       if (wavePlan.status === "done") {
         overallDone = true;
         break;
@@ -233,7 +336,7 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
       let waveCompleted = false;
 
       for (let cycle = 1; cycle <= options.maxExecutionCyclesPerWave && !overallDone; cycle += 1) {
-        const execution = await runPhase(session, reports, "execute", options, wave, cycle);
+        const execution = await runPhase(session, reports, "execute", options, wave, cycle, substrate, runWorkspace, warnings);
         if (execution.status === "done") {
           overallDone = true;
           break;
@@ -242,7 +345,7 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
           throw new Error(`Execution stopped with status ${execution.status}`);
         }
 
-        const review = await runPhase(session, reports, "review", options, wave, cycle);
+        const review = await runPhase(session, reports, "review", options, wave, cycle, substrate, runWorkspace, warnings);
         const action = decidePostReviewAction(review.status);
 
         if (action === "closeout") {
@@ -257,7 +360,7 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
           break;
         }
         if (action === "replan") {
-          const replan = await runPhase(session, reports, "replan", options, wave, cycle);
+          const replan = await runPhase(session, reports, "replan", options, wave, cycle, substrate, runWorkspace, warnings);
           if (replan.status === "done") {
             overallDone = true;
             break;
@@ -272,7 +375,17 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
       if (overallDone) break;
 
       if (!waveCompleted) {
-        const recalibration = await runPhase(session, reports, "replan", options, wave, options.maxExecutionCyclesPerWave);
+        const recalibration = await runPhase(
+          session,
+          reports,
+          "replan",
+          options,
+          wave,
+          options.maxExecutionCyclesPerWave,
+          substrate,
+          runWorkspace,
+          warnings,
+        );
         if (recalibration.status === "done") {
           overallDone = true;
           break;
@@ -281,7 +394,7 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
           throw new Error(`Wave recalibration stopped with status ${recalibration.status}`);
         }
       } else if (wave < options.maxWaves) {
-        const roadmapReplan = await runPhase(session, reports, "replan", options, wave + 1, 1);
+        const roadmapReplan = await runPhase(session, reports, "replan", options, wave + 1, 1, substrate, runWorkspace, warnings);
         if (roadmapReplan.status === "done") {
           overallDone = true;
           break;
@@ -299,6 +412,9 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
       options,
       Math.max(1, wavesAttempted || 1),
       options.maxExecutionCyclesPerWave,
+      substrate,
+      runWorkspace,
+      warnings,
     );
     overallDone = overallDone || closeout.status === "done";
 
@@ -307,10 +423,12 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
       reports,
       sessionFile: session.sessionFile,
       wavesAttempted,
+      warnings,
     };
   } finally {
     unsubscribe();
     session.dispose();
+    setRuntimeSubstrate(undefined);
   }
 }
 
@@ -325,6 +443,9 @@ async function main(): Promise<void> {
   console.error(`\nRun finished. done=${summary.done} wavesAttempted=${summary.wavesAttempted}`);
   if (summary.sessionFile) {
     console.error(`session: ${summary.sessionFile}`);
+  }
+  if (summary.warnings.length > 0) {
+    console.error(`warnings: ${summary.warnings.length}`);
   }
 }
 

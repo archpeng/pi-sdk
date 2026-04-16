@@ -11,6 +11,12 @@ import {
   type AutopilotToolDetails,
   isAutopilotToolDetails,
 } from "../shared/types.js";
+import {
+  formatGovernanceBlockReason,
+  getRuntimeSubstrate,
+  shouldBlockToolCall,
+  shouldPreflightToolCall,
+} from "../substrate/index.js";
 
 const AutopilotReportParams = Type.Object({
   phase: StringEnum(AUTOPILOT_PHASES),
@@ -81,6 +87,36 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       ctx.ui.setStatus("autopilot", undefined);
       ctx.ui.setWidget("autopilot", undefined);
     }
+  });
+
+  pi.on("tool_call", async (event, ctx) => {
+    if (event.toolName === AUTOPILOT_REPORT_TOOL_NAME) return undefined;
+
+    const substrate = getRuntimeSubstrate();
+    if (!substrate || substrate.mode !== "bb") return undefined;
+    if (!shouldPreflightToolCall(event.toolName, event.input as Record<string, unknown>)) return undefined;
+
+    const result = await substrate.govern.evaluate({
+      toolName: event.toolName,
+      args: event.input as Record<string, unknown>,
+      cwd: ctx.cwd,
+    });
+
+    if (!result.ok) {
+      const warning = `[bb-govern] ${result.summary}`;
+      if (ctx.hasUI) ctx.ui.notify(warning, "warning");
+      else console.warn(warning);
+      return undefined;
+    }
+
+    if (shouldBlockToolCall(result.data.decision)) {
+      return {
+        block: true,
+        reason: formatGovernanceBlockReason(result.data),
+      };
+    }
+
+    return undefined;
   });
 
   pi.on("tool_result", async (event, ctx) => {
