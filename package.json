@@ -1,0 +1,53 @@
+{
+  "name": "pi-sdk",
+  "version": "0.1.0",
+  "description": "Autopilot workflow MVP for Pi using an extension plus an SDK orchestrator",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/archpeng/pi-sdk.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "sdk",
+    "extension",
+    "agent",
+    "autopilot"
+  ],
+  "bin": {
+    "pi-sdk-autopilot": "./dist/sdk/orchestrator.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist",
+    "dev": "tsx src/sdk/orchestrator.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./src/extension/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "^0.67.3",
+    "@mariozechner/pi-coding-agent": "^0.67.3",
+    "@sinclair/typebox": "^0.34.41"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  }
+}
