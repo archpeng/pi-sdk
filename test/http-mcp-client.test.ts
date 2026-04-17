@@ -100,3 +100,31 @@ test("MCP HTTP client keeps plain-text successful payloads when JSON parsing is 
   assert.equal(result.parsed, null);
   assert.equal(result.rawText, "No active plans found in docs/plan.");
 });
+
+test("MCP HTTP client parses resources/read contents payloads", async () => {
+  const client = createMcpHttpClient({
+    baseUrl: "http://bb-memory.test/mcp",
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            contents: [
+              {
+                uri: "memory://autopilot/canary/reports/recent",
+                text: JSON.stringify({ reports: [{ report_id: "canary-1" }] }),
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+  });
+
+  const result = await client.readResource("memory://autopilot/canary/reports/recent");
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.parsed, { reports: [{ report_id: "canary-1" }] });
+  assert.equal(result.rawText, '{"reports":[{"report_id":"canary-1"}]}');
+});

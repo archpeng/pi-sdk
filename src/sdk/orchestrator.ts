@@ -13,59 +13,39 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
-import { buildPhasePrompt } from "../shared/prompts.js";
-import { decidePostReviewAction } from "../shared/state-machine.js";
+import { buildCloseoutSummaryLines } from "../autopilot/closeout.js";
+import { runAutopilotWorkflow } from "../autopilot/engine.js";
+import { buildPhasePrompt } from "../autopilot/phase-prompt.js";
+import { buildAutopilotArtifactSummaryProjection } from "../autopilot/artifact-summary-projection.js";
+import { buildAutopilotBenchmarkProjection } from "../autopilot/benchmark-projection.js";
+import { buildAutopilotDecisionProjection } from "../autopilot/decision-projection.js";
+import { buildAutopilotHistoryProjection } from "../autopilot/history-projection.js";
 import {
   AUTOPILOT_REPORT_TOOL_NAME,
-  DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE,
-  DEFAULT_AUTOPILOT_MAX_WAVES,
-  DEFAULT_AUTOPILOT_THINKING_LEVEL,
-  THINKING_LEVELS,
+  deriveAutopilotObjectiveKey,
   formatAutopilotReport,
   type AutopilotPhase,
   type AutopilotReport,
   type AutopilotRunOptions,
   type AutopilotRunSummary,
-  type SupportedThinkingLevel,
   isAutopilotToolDetails,
-} from "../shared/types.js";
+} from "../autopilot/protocol.js";
+import { formatAutopilotCliUsage, parseAutopilotCliCommand } from "./cli.js";
 import {
   buildPhaseHydrationSections,
   buildRawPhaseEvidence,
+  buildAutopilotRunManifest,
   createAutopilotSubstrate,
+  formatAutopilotDoctorResult,
+  loadAutopilotPackageMetadata,
   loadRunWorkspaceSnapshot,
   preparePhaseHydration,
   resolveAutopilotSubstrateConfig,
+  runAutopilotDoctorChecks,
   setRuntimeSubstrate,
   type AutopilotSubstrate,
   type RunWorkspaceSnapshot,
 } from "../substrate/index.js";
-
-function printUsage(): void {
-  console.log(`pi-sdk-autopilot\n\nUsage:\n  pi-sdk-autopilot --goal "<objective>" [options]\n\nOptions:\n  --goal <text>          Required objective for the autopilot run\n  --cwd <path>           Repo to operate on (default: current working directory)\n  --model <provider/id>  Optional Pi model identifier\n  --thinking <level>     off|minimal|low|medium|high|xhigh (default: ${DEFAULT_AUTOPILOT_THINKING_LEVEL})\n  --max-waves <n>        Maximum waves to attempt (default: ${DEFAULT_AUTOPILOT_MAX_WAVES})\n  --max-cycles <n>       Maximum execute/review cycles per wave (default: ${DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE})\n  --substrate <mode>     local|bb (default: local)\n  --plan-docs <path>     Override docs/plan path used for BB workspace sync\n  --bb-memory-url <url>  Override BB memory MCP endpoint\n  --bb-govern-url <url>  Override BB govern MCP endpoint\n  --bb-tools-url <url>   Override BB tools MCP endpoint\n  --agent-dir <path>     Override Pi agent directory\n  --ephemeral            Use an in-memory session instead of persisted sessions\n  --quiet                Suppress assistant text streaming to stdout\n  --help                 Show this help\n`);
-}
-
-function parsePositiveInt(value: string, flag: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${flag} must be a positive integer, received: ${value}`);
-  }
-  return parsed;
-}
-
-function parseThinkingLevel(value: string | undefined): SupportedThinkingLevel {
-  if (!value) return DEFAULT_AUTOPILOT_THINKING_LEVEL;
-  if ((THINKING_LEVELS as readonly string[]).includes(value)) {
-    return value as SupportedThinkingLevel;
-  }
-  throw new Error(`Unsupported thinking level: ${value}`);
-}
-
-function parseModelSpec(spec: string | undefined): string | undefined {
-  if (!spec) return undefined;
-  return spec.trim() || undefined;
-}
 
 function resolveExtensionPath(): string {
   const currentFile = fileURLToPath(import.meta.url);
@@ -80,55 +60,6 @@ function resolveExtensionPath(): string {
     throw new Error(`Could not resolve bundled extension. Tried: ${candidates.join(", ")}`);
   }
   return found;
-}
-
-function parseCliArgs(argv = process.argv.slice(2)): AutopilotRunOptions | null {
-  const { values } = parseArgs({
-    args: argv,
-    options: {
-      goal: { type: "string" },
-      cwd: { type: "string" },
-      model: { type: "string" },
-      thinking: { type: "string" },
-      substrate: { type: "string" },
-      "plan-docs": { type: "string" },
-      "bb-memory-url": { type: "string" },
-      "bb-govern-url": { type: "string" },
-      "bb-tools-url": { type: "string" },
-      "max-waves": { type: "string" },
-      "max-cycles": { type: "string" },
-      "agent-dir": { type: "string" },
-      ephemeral: { type: "boolean", default: false },
-      quiet: { type: "boolean", default: false },
-      help: { type: "boolean", default: false },
-    },
-    allowPositionals: false,
-  });
-
-  if (values.help) return null;
-  if (!values.goal?.trim()) {
-    throw new Error("--goal is required");
-  }
-
-  return {
-    goal: values.goal.trim(),
-    cwd: path.resolve(values.cwd ?? process.cwd()),
-    model: parseModelSpec(values.model),
-    thinkingLevel: parseThinkingLevel(values.thinking),
-    maxWaves: parsePositiveInt(values["max-waves"] ?? String(DEFAULT_AUTOPILOT_MAX_WAVES), "--max-waves"),
-    maxExecutionCyclesPerWave: parsePositiveInt(
-      values["max-cycles"] ?? String(DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE),
-      "--max-cycles",
-    ),
-    substrateMode: values.substrate,
-    planDocsPath: values["plan-docs"] ? path.resolve(values["plan-docs"]) : undefined,
-    bbMemoryUrl: values["bb-memory-url"],
-    bbGovernUrl: values["bb-govern-url"],
-    bbToolsUrl: values["bb-tools-url"],
-    agentDir: values["agent-dir"] ? path.resolve(values["agent-dir"]) : undefined,
-    ephemeral: values.ephemeral,
-    stream: !values.quiet,
-  };
 }
 
 function createAuthAndRegistry(agentDir: string): { authStorage: AuthStorage; modelRegistry: ModelRegistry } {
@@ -202,6 +133,7 @@ async function runPhase(
   currentCycle: number,
   substrate: AutopilotSubstrate,
   runWorkspace: RunWorkspaceSnapshot,
+  objectiveKey: string,
   warnings: string[],
 ): Promise<AutopilotReport> {
   const baseline = reports.length;
@@ -212,6 +144,7 @@ async function runPhase(
     currentWave,
     currentCycle,
     recentReports: reports.slice(-6),
+    objectiveKey,
     sessionId: session.sessionId,
     runWorkspace,
   });
@@ -265,6 +198,7 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
   const substrate = createAutopilotSubstrate(substrateConfig);
   setRuntimeSubstrate(substrate);
 
+  const objectiveKey = deriveAutopilotObjectiveKey(options.goal, cwd);
   const warnings: string[] = [];
   const runWorkspace = await loadRunWorkspaceSnapshot(substrate);
   for (const warning of runWorkspace.warnings) {
@@ -315,115 +249,75 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
     }
   });
 
-  let overallDone = false;
-  let wavesAttempted = 0;
-
   try {
-    const masterPlan = await runPhase(session, reports, "master_plan", options, 1, 1, substrate, runWorkspace, warnings);
-    if (masterPlan.status === "done") {
-      overallDone = true;
-    }
-
-    for (let wave = 1; wave <= options.maxWaves && !overallDone; wave += 1) {
-      wavesAttempted = wave;
-
-      const wavePlan = await runPhase(session, reports, "wave_plan", options, wave, 1, substrate, runWorkspace, warnings);
-      if (wavePlan.status === "done") {
-        overallDone = true;
-        break;
-      }
-
-      let waveCompleted = false;
-
-      for (let cycle = 1; cycle <= options.maxExecutionCyclesPerWave && !overallDone; cycle += 1) {
-        const execution = await runPhase(session, reports, "execute", options, wave, cycle, substrate, runWorkspace, warnings);
-        if (execution.status === "done") {
-          overallDone = true;
-          break;
-        }
-        if (execution.status === "blocked" || execution.status === "failed") {
-          throw new Error(`Execution stopped with status ${execution.status}`);
-        }
-
-        const review = await runPhase(session, reports, "review", options, wave, cycle, substrate, runWorkspace, warnings);
-        const action = decidePostReviewAction(review.status);
-
-        if (action === "closeout") {
-          overallDone = true;
-          break;
-        }
-        if (action === "stop") {
-          throw new Error(`Review stopped with status ${review.status}`);
-        }
-        if (action === "next_wave") {
-          waveCompleted = true;
-          break;
-        }
-        if (action === "replan") {
-          const replan = await runPhase(session, reports, "replan", options, wave, cycle, substrate, runWorkspace, warnings);
-          if (replan.status === "done") {
-            overallDone = true;
-            break;
-          }
-          if (replan.status === "blocked" || replan.status === "failed") {
-            throw new Error(`Replan stopped with status ${replan.status}`);
-          }
-          continue;
-        }
-      }
-
-      if (overallDone) break;
-
-      if (!waveCompleted) {
-        const recalibration = await runPhase(
+    const workflow = await runAutopilotWorkflow({
+      maxWaves: options.maxWaves,
+      maxExecutionCyclesPerWave: options.maxExecutionCyclesPerWave,
+      runPhase: async ({ phase, currentWave, currentCycle }) =>
+        runPhase(
           session,
           reports,
-          "replan",
+          phase,
           options,
-          wave,
-          options.maxExecutionCyclesPerWave,
+          currentWave,
+          currentCycle,
           substrate,
           runWorkspace,
+          objectiveKey,
           warnings,
-        );
-        if (recalibration.status === "done") {
-          overallDone = true;
-          break;
-        }
-        if (recalibration.status === "blocked" || recalibration.status === "failed") {
-          throw new Error(`Wave recalibration stopped with status ${recalibration.status}`);
-        }
-      } else if (wave < options.maxWaves) {
-        const roadmapReplan = await runPhase(session, reports, "replan", options, wave + 1, 1, substrate, runWorkspace, warnings);
-        if (roadmapReplan.status === "done") {
-          overallDone = true;
-          break;
-        }
-        if (roadmapReplan.status === "blocked" || roadmapReplan.status === "failed") {
-          throw new Error(`Roadmap recalibration stopped with status ${roadmapReplan.status}`);
-        }
+        ),
+    });
+
+    const [status, authority, history, artifactSummary] = await Promise.all([
+      substrate.autopilot.status({ objectiveKey }),
+      substrate.autopilot.authority({ objectiveKey }),
+      substrate.autopilot.history({ objectiveKey, limit: 4 }),
+      substrate.autopilot.learnedArtifactSummary({ objectiveKey }),
+    ]);
+    if (!status.ok) {
+      recordWarning(warnings, status.summary);
+    }
+    if (!authority.ok) {
+      recordWarning(warnings, authority.summary);
+    }
+    if (!history.ok) {
+      recordWarning(warnings, history.summary);
+    }
+    if (!artifactSummary.ok) {
+      recordWarning(warnings, artifactSummary.summary);
+    }
+
+    let reconcilePlan = null;
+    if (authority.ok && authority.data && authority.data.intentState === "recorded" && authority.data.reconcileState === "ready") {
+      reconcilePlan = await substrate.autopilot.decisionReconcilePlan({
+        objectiveKey,
+        authorityId: authority.data.authorityId,
+      });
+      if (!reconcilePlan.ok) {
+        recordWarning(warnings, reconcilePlan.summary);
       }
     }
 
-    const closeout = await runPhase(
-      session,
-      reports,
-      "closeout",
-      options,
-      Math.max(1, wavesAttempted || 1),
-      options.maxExecutionCyclesPerWave,
-      substrate,
-      runWorkspace,
-      warnings,
-    );
-    overallDone = overallDone || closeout.status === "done";
+    const artifactSummaryProjection =
+      artifactSummary.ok && artifactSummary.data
+        ? buildAutopilotArtifactSummaryProjection(artifactSummary.data)
+        : undefined;
 
     return {
-      done: overallDone,
-      reports,
+      done: workflow.done,
+      reports: workflow.reports,
       sessionFile: session.sessionFile,
-      wavesAttempted,
+      wavesAttempted: workflow.wavesAttempted,
       warnings,
+      objectiveKey,
+      ...(status.ok && status.data ? { benchmarkProjection: buildAutopilotBenchmarkProjection(status.data) } : {}),
+      ...(authority.ok && authority.data
+        ? { decisionProjection: buildAutopilotDecisionProjection(authority.data, reconcilePlan?.ok ? reconcilePlan.data : undefined) }
+        : {}),
+      ...((history.ok && history.data) || artifactSummaryProjection
+        ? { historyProjection: buildAutopilotHistoryProjection(history.ok ? history.data : undefined, artifactSummaryProjection) }
+        : {}),
+      ...(artifactSummaryProjection ? { artifactSummaryProjection } : {}),
     };
   } finally {
     unsubscribe();
@@ -433,19 +327,36 @@ export async function runAutopilot(options: AutopilotRunOptions): Promise<Autopi
 }
 
 async function main(): Promise<void> {
-  const parsed = parseCliArgs();
-  if (!parsed) {
-    printUsage();
-    return;
-  }
+  const command = parseAutopilotCliCommand();
 
-  const summary = await runAutopilot(parsed);
-  console.error(`\nRun finished. done=${summary.done} wavesAttempted=${summary.wavesAttempted}`);
-  if (summary.sessionFile) {
-    console.error(`session: ${summary.sessionFile}`);
-  }
-  if (summary.warnings.length > 0) {
-    console.error(`warnings: ${summary.warnings.length}`);
+  switch (command.kind) {
+    case "help":
+      console.log(formatAutopilotCliUsage());
+      return;
+    case "version":
+      console.log(loadAutopilotPackageMetadata().version);
+      return;
+    case "print-manifest":
+      console.log(JSON.stringify(buildAutopilotRunManifest(), null, 2));
+      return;
+    case "doctor": {
+      const result = runAutopilotDoctorChecks();
+      for (const line of formatAutopilotDoctorResult(result)) {
+        console.log(line);
+      }
+      if (!result.ok) {
+        process.exitCode = 1;
+      }
+      return;
+    }
+    case "run": {
+      const summary = await runAutopilot(command.options);
+      console.error("");
+      for (const line of buildCloseoutSummaryLines(summary)) {
+        console.error(line);
+      }
+      return;
+    }
   }
 }
 

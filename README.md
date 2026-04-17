@@ -1,69 +1,168 @@
 # pi-sdk
 
-`pi-sdk` 是一个面向 **Pi coding agent** 的 autopilot SDK：
+`pi-sdk` 现在定位为一个 **Pi-native interactive autopilot package with a shared headless driver**。
 
-- 一个 **Pi extension**，提供 `autopilot_report` 工具、轻量状态展示，以及 execution-phase governance preflight hook
-- 一个 **Pi SDK orchestrator**，按 `master_plan -> wave_plan -> execute -> review -> replan -> closeout` 驱动任务推进
-- 一组 **substrate ports**，让 `pi-sdk` 以 `local` / `bb` 两种模式接入 memory / governance / workspace substrate
+固定产品表达：
 
-项目目标不是一开始就做“万能全自动程序员”，而是把一条 **可运行、可验证、可继续外接 BB substrate** 的自动推进主路径落成薄壳。
+- **primary UX** = 当前 Pi session 内的 interactive autopilot
+- **secondary UX** = CLI / headless / batch driver
+- **truth / eval / learning** = 继续由 `BB` substrate 负责
+- **Pi core** = 不做 patch
+
+这意味着 `pi-sdk` 不再把“CLI orchestrator + optional extension”当作长期目标，而是把：
+
+> **shared autopilot core + Pi interactive driver + CLI/headless driver**
+
+作为当前正确形态。
 
 ## 当前能力
 
-- 生成大推进纲领（master plan）
-- 把工作拆成 waves
-- 对每个 wave 做：
-  - 计划
-  - 执行
-  - review
-  - replan
-- wave 完成后做 roadmap recalibration
-- 最后做 closeout
-- 通过 `autopilot_report` 把每一阶段的结构化状态回传给外层 orchestrator
-- 通过 substrate ports 接入：
-  - `MemoryPort`
-  - `GovernPort`
-  - `WorkspacePort`
-- 在 `bb` 模式下：
-  - pre-phase 最小 hydration
-  - post-phase raw evidence writeback
-  - execution 高风险动作 governance preflight
+### 1. Pi-native interactive autopilot
+
+安装为 Pi package 后，当前 session 内可直接使用：
+
+- `/autopilot-run <goal>`
+- `/autopilot-resume [goal]`
+- `/autopilot-pause`
+- `/autopilot-stop`
+- `/autopilot-status`
+- `/autopilot-status overlay`（bounded operator inspector overlay）
+- `autopilot_report` tool
+
+Interactive driver 当前已具备：
+
+- 同一 Pi session 内 phase dispatch
+- `autopilot_report` 驱动的自动续跑
+- pause / resume / stop 语义
+- session-branch aware runtime-state reconstruction
+- footer/widget 状态展示
+- operator-facing degraded-mode / warning summary
+- BB-backed benchmark / promotion-readiness projection（当 server-owned status 可达时）
+- BB-backed decision-authority / dry-run reconcile projection（当 server-owned authority surfaces 可达时）
+- bounded status overlay inspector
+- `bb` substrate 模式下的 risky tool governance preflight
+
+### 2. Shared autopilot core
+
+`src/autopilot/**` 现已承载共享协议面：
+
+- protocol vocabulary / report schema
+- phase prompt builder
+- headless workflow engine
+- interactive runtime state model + reconstruction
+- closeout summary helper
+
+### 3. CLI / headless driver
+
+`src/sdk/orchestrator.ts` 仍保留，但现在定位为 **secondary driver**：
+
+- CLI argv parsing
+- session bootstrap
+- bounded headless loop
+- stdout / stderr closeout summary
+
+### 4. Substrate seam
+
+`src/substrate/**` 继续提供：
+
+- `local` / `bb` substrate mode
+- memory / governance / workspace ports
+- BB HTTP MCP adapter
+- hydration / raw evidence writeback helpers
 
 ## 项目结构
 
 ```text
 src/
+  autopilot/
+    protocol.ts          # shared protocol / commands / report schema
+    phase-prompt.ts      # shared phase prompt builder
+    engine.ts            # shared headless workflow engine
+    state.ts             # interactive runtime state + reconstruction
+    closeout.ts          # shared closeout summary formatting
   extension/
-    index.ts              # Pi extension: autopilot_report + status UI + governance preflight
+    index.ts             # Pi interactive driver
   sdk/
-    orchestrator.ts       # Headless SDK runner / CLI
+    orchestrator.ts      # CLI/headless driver
   shared/
-    prompts.ts            # Phase prompts
-    state-machine.ts      # Outer-loop decision logic
-    types.ts              # Shared protocol/types
+    *.ts                 # compatibility re-exports into shared core
   substrate/
-    index.ts              # substrate config + factory
-    bb.ts                 # BB HTTP MCP adapter
-    local.ts              # local/no-op substrate
-    hydration.ts          # pre-phase hydration + raw evidence helpers
-    governance.ts         # risky tool classification helpers
-    http-mcp-client.ts    # streamable HTTP MCP client
+    index.ts             # substrate config + factory
+    bb.ts                # BB HTTP MCP adapter
+    local.ts             # local/no-op substrate
+    hydration.ts         # pre-phase hydration + raw evidence helpers
+    governance.ts        # risky tool classification helpers
+    http-mcp-client.ts   # streamable HTTP MCP client
 test/
-  *.test.ts               # targeted TDD coverage for substrate/config/governance
+  *.test.ts              # targeted TDD coverage
 ```
 
-## 安装
+## 安装与验证
 
 ```bash
 cd /home/peng/dt-git/github/pi-sdk
 npm install
 npm test
+npm run typecheck
 npm run build
 ```
 
-## 作为 SDK CLI 运行
+注意：
 
-确保你本机 Pi 已经可用，并且有可用模型认证（例如 `~/.pi/agent/auth.json` 或环境变量 API key）。
+- `build` 现在会先执行 `clean`
+- `src/**` 是唯一开发真相
+- `dist/**` 只是 clean build output，不再允许靠 stale dist 文件“假装”存在旧能力面
+- v1 release/readiness acceptance gate 现在固定为 `npm run release:check`
+- post-v1 maintenance 现已增加 clean-room packaged install smoke：`npm run smoke:packaged-install`
+- final completion proof route 现已增加 `pi` startup autoload smoke：`npm run smoke:pi-autoload`
+- auto-loaded command-surface smoke 现已增加：`npm run smoke:pi-commands`
+- deterministic BB-backed residual smoke 现已增加：`npm run smoke:pi-bb-backed`
+- operator install / upgrade / diagnostics / recovery runbook 见：`docs/runbooks/pi-sdk-autopilot-v1-operator-runbook.md`
+
+## 作为 Pi package 使用
+
+`package.json` 已声明：
+
+```json
+{
+  "pi": {
+    "extensions": ["./src/extension/index.ts"]
+  }
+}
+```
+
+所以可以直接：
+
+```bash
+pi install /home/peng/dt-git/github/pi-sdk
+```
+
+安装后在当前 Pi session 内使用：
+
+```text
+/autopilot-run <goal>
+/autopilot-resume [goal]
+/autopilot-pause
+/autopilot-stop
+/autopilot-status
+```
+
+### Interactive 行为要点
+
+- 当前 session 就是执行现场
+- extension 使用 `sendUserMessage()` 在同一 session 内推进 phase
+- 不再把 interactive path 建立在隐藏第二个 `AgentSession` 上
+- `autopilot_report` 仍是 machine-consumable phase contract
+- runtime state 会通过 `pi.appendEntry("autopilot-runtime-state", ...)` 持久化，供 reload / tree navigation / resume 重建
+- status/widget 会显式暴露 substrate mode、degraded yes/no、warning summary
+- 当 `bb` substrate 的 `memory_autopilot_status` 可达时，status/widget/overlay 会投影 objective key 与 promotion-readiness summary
+- 当 `bb` substrate 的 decision-authority current/detail resources 与 reconcile-plan tool 可达时，status/overlay/closeout/hydration 会进一步投影 bounded decision-authority summary 与 `dry_run manual_reconcile` visibility
+- 当 `bb` substrate 的 recent canary / strategy report resources 可达时，status/overlay/closeout/hydration 会进一步投影 bounded history-summary
+- `/autopilot-status overlay` 会在当前 Pi UI 内打开 bounded inspector overlay，而不是新建第二个 UI/runtime
+
+## 作为 CLI / headless driver 使用
+
+确保本机 Pi 已可用，并且已有模型认证（例如 `~/.pi/agent/auth.json`）。
 
 ### Local substrate（默认）
 
@@ -85,7 +184,7 @@ node dist/sdk/orchestrator.js \
   --substrate bb
 ```
 
-也可以直接用开发模式：
+也可以直接开发模式运行：
 
 ```bash
 npm run dev -- \
@@ -95,6 +194,8 @@ npm run dev -- \
 ```
 
 ### CLI 参数
+
+Run mode：
 
 - `--goal <text>`：必填，总目标
 - `--cwd <path>`：目标仓库路径，默认当前目录
@@ -111,93 +212,88 @@ npm run dev -- \
 - `--ephemeral`：使用内存 session
 - `--quiet`：不把 assistant 文本实时流到 stdout
 
-### BB endpoint 环境变量
+Readiness / packaging mode：
 
-如不显式传 CLI 参数，`bb` 模式会读取：
+- `--version`：输出当前 package version
+- `--print-manifest`：输出 v1 release/readiness manifest JSON
+- `--doctor`：执行 bounded packaging/readiness diagnostics（repo checkout 与 installed package 都保持诚实边界）
+- `--help`：输出 CLI 帮助
 
-- `PI_SDK_SUBSTRATE=bb`
-- `PI_SDK_BB_MEMORY_URL`（默认 `http://127.0.0.1:3100/mcp`）
-- `PI_SDK_BB_GOVERN_URL`（默认 `http://127.0.0.1:3101/mcp`）
-- `PI_SDK_BB_TOOLS_URL`（默认 `http://127.0.0.1:3102/mcp`）
+## 协议核心
 
-## 作为 Pi extension 使用
+所有 driver 仍共用同一 phase protocol：
 
-### 直接加载本地 extension
+- `master_plan`
+- `wave_plan`
+- `execute`
+- `review`
+- `replan`
+- `closeout`
 
-```bash
-pi -e /home/peng/dt-git/github/pi-sdk/src/extension/index.ts
-```
+每个 phase 结束前必须 **恰好调用一次** `autopilot_report`，并回传：
 
-### 作为本地 Pi package 安装
+- `phase`
+- `status`
+- `summary`
+- `nextAction`
+- `evidence[]`
+- `artifacts[]`
+- `risks[]`
 
-因为 `package.json` 里带了：
-
-```json
-{
-  "pi": {
-    "extensions": ["./src/extension/index.ts"]
-  }
-}
-```
-
-所以可以直接：
-
-```bash
-pi install /home/peng/dt-git/github/pi-sdk
-```
-
-安装后，extension 会提供：
-
-- `autopilot_report` 工具
-- `/autopilot-status` 命令
-- `bb` substrate 模式下的 high-risk tool governance preflight
-
-## 协议核心：autopilot_report
-
-外层 orchestrator 不直接靠自由文本猜状态，而是要求模型在每个 phase 结束前 **恰好调用一次**：
-
-- `phase`: `master_plan | wave_plan | execute | review | replan | closeout`
-- `status`: `continue | completed | needs_replan | blocked | failed | done`
-- `summary`: 当前阶段结果摘要
-- `nextAction`: 建议 orchestrator 下一步做什么
-- `evidence / artifacts / risks`: 结构化补充信息
+这仍然是 `pi-sdk` 的核心 machine-consumable contract。
 
 ## Substrate 行为边界
 
 ### `local`
 
-- 不做外部 memory/govern/workspace 调用
-- phase loop 继续保持最小可运行 CLI 行为
+- 不做外部 memory / govern / workspace 调用
+- interactive 与 CLI driver 都可继续最小可运行
 - 所有 substrate port 都是显式 no-op
 
 ### `bb`
 
 通过 BB HTTP MCP servers 接入：
 
-- memory: `memory_recall` / `memory_store`
+- memory: `memory_recall` / `memory_store` / `memory_autopilot_status`
+- decision authority: `memory_autopilot_decision_authority` / `memory_autopilot_decision_intent` / `memory_autopilot_decision_reconcile_plan`
+- resources: `memory://autopilot/decision-authority/current/{objective_key}` / `memory://autopilot/decision-authority/recent` / `memory://autopilot/decision-authority/{authority_id}`
+- history resources: `memory://autopilot/canary/reports/recent` / `memory://autopilot/strategy-feedback/reports/recent`（用于 bounded operator history inspection）
 - govern: `govern_policy` / `govern_evaluate`
 - workspace: `workspace_scan` / `plan_sync`
 
-当前设计约束：
+当前固定约束：
 
-- recall / workspace / policy 失败时 **显式告警并 fail-open**，不让最小 CLI 直接崩掉
-- post-phase writeback 只写 **raw phase evidence**，不伪装成 canonical run/workset head
-- governance preflight 只针对高风险 execution 动作做最小 hook
+- `pi-sdk` 继续做 workflow shell
+- benchmark / promotion / canonical truth / eval / learning 继续在 `BB`
+- repo-local objective key 只用于查询 server-owned status / authority truth，不代表本地拥有 benchmark or decision truth
+- 若 live BB endpoint 落后于源码，必须显式降级，而不是在 `pi-sdk` 本地偷偷发明第二套 truth path
 
-## 当前限制
+## 关键设计约束
 
-这是 **V1 foundation**，故意保持薄：
+1. **official Pi docs / examples first**
+2. **no hidden second session as the primary interactive path**
+3. **no Pi core patch**
+4. **BB remains the truth / eval / learning substrate**
+5. **CLI stays supported, but is secondary**
 
-- 还没有 canonical run/workset head
-- 还没有 replay / eval / canary 主循环
-- 还没有 subagent fan-out
-- 还没有 git checkpoint / rollback 自动化
-- governance preflight 当前只覆盖高风险 tool call gate，不是完整审批系统
-
-## 开发命令
+## Release / Readiness Quick Commands
 
 ```bash
-npm test
-npm run typecheck
-npm run build
+node dist/sdk/orchestrator.js --version
+node dist/sdk/orchestrator.js --print-manifest
+node dist/sdk/orchestrator.js --doctor
+npm run smoke:pi-autoload
+npm run smoke:pi-commands
+npm run smoke:pi-bb-backed
+npm run smoke:packaged-install
+npm run release:check
+npm pack --dry-run
 ```
+
+## 相关文档
+
+- `docs/architecture.md`
+- `docs/pi-sdk-bb-integration-architecture.md`
+- `docs/pi-native-interactive-autopilot-design-2026-04-16.md`
+- `docs/runbooks/pi-sdk-autopilot-v1-operator-runbook.md`
+- `docs/plan/README.md`

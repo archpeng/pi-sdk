@@ -1,7 +1,7 @@
 {
   "name": "pi-sdk",
   "version": "0.1.0",
-  "description": "Autopilot workflow MVP for Pi using an extension plus an SDK orchestrator",
+  "description": "Pi-native interactive autopilot package with a shared headless driver", 
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -24,14 +24,22 @@
   "files": [
     "dist",
     "src",
-    "README.md"
+    "README.md",
+    "docs/runbooks"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
     "clean": "rm -rf dist",
-    "dev": "tsx src/sdk/orchestrator.ts"
+    "dev": "tsx src/sdk/orchestrator.ts",
+    "smoke:pi-autoload": "node ./scripts/pi-startup-autoload-proof.mjs",
+    "smoke:pi-commands": "node ./scripts/pi-command-smoke.mjs",
+    "smoke:pi-bb-backed": "node ./scripts/pi-bb-backed-smoke.mjs",
+    "smoke:packaged-install": "node ./scripts/packaged-install-smoke.mjs",
+    "release:check": "node ./scripts/release-readiness-check.mjs",
+    "pack:dry-run": "npm pack --dry-run",
+    "prepack": "npm run build"
   },
   "pi": {
     "extensions": [

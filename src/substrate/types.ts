@@ -1,3 +1,10 @@
+import type {
+  AutopilotArtifactSummaryProjection,
+  AutopilotBenchmarkProjection,
+  AutopilotDecisionProjection,
+  AutopilotHistoryProjection,
+  AutopilotHistoryReportKind,
+} from "../autopilot/protocol.js";
 import type { AutopilotPhase, AutopilotReport } from "../shared/types.js";
 
 export const AUTOPILOT_SUBSTRATE_MODES = ["local", "bb"] as const;
@@ -115,6 +122,175 @@ export interface WorkspacePort {
   planSync(input: PlanSyncInput): Promise<SubstrateResult<PlanSyncEntry[]>>;
 }
 
+export interface AutopilotStatusHead {
+  kind: string;
+  scopeKey: string;
+  found: boolean;
+  freshness: string;
+}
+
+export interface AutopilotStatusPayload {
+  objectiveKey: string;
+  queueLag?: number;
+  queueDrainState?: string;
+  headFreshness?: string;
+  replayHealth?: string;
+  canaryVerdict?: string;
+  rolloutDecision?: string;
+  strategyFeedbackCandidate?: boolean;
+  heads: AutopilotStatusHead[];
+  summary: string[];
+  publishedAtMs?: number;
+}
+
+export interface AutopilotStatusInput {
+  objectiveKey: string;
+  staleAfterMs?: number;
+}
+
+export interface AutopilotHistoryEntryPayload {
+  reportKind: AutopilotHistoryReportKind;
+  reportId: string;
+  objectiveKey: string;
+  label: string;
+  summaryLine: string;
+  publishedAtMs: number;
+  reportRef?: string;
+  lifecycleState?: string;
+}
+
+export interface AutopilotHistoryPayload {
+  objectiveKey: string;
+  entries: AutopilotHistoryEntryPayload[];
+}
+
+export interface AutopilotHistoryInput {
+  objectiveKey: string;
+  limit?: number;
+}
+
+export interface AutopilotDecisionEvidenceRefsPayload {
+  statusReportId?: string | undefined;
+  canaryReportId?: string | undefined;
+  strategyFeedbackReportId?: string | undefined;
+  sourceRefs: string[];
+}
+
+export interface AutopilotDecisionAuthorityPayload {
+  authorityId: string;
+  authorityRef: string;
+  objectiveKey: string;
+  lifecycleState: string;
+  decisionState: string;
+  intentState: string;
+  reconcileState: string;
+  finalOutcome?: string | undefined;
+  reasonCodes: string[];
+  evidence: AutopilotDecisionEvidenceRefsPayload;
+  decidedAtMs: number;
+  scopeFamily: string;
+  scopeKey: string;
+  requiresManualReconcile: boolean;
+  supersedesAuthorityId?: string | undefined;
+  supersededByAuthorityId?: string | undefined;
+  intentOutcome?: string | undefined;
+  intentNote?: string | undefined;
+  intentSourceRefs?: string[] | undefined;
+}
+
+export interface AutopilotDecisionAuthorityInput {
+  objectiveKey: string;
+  authorityId?: string;
+}
+
+export interface AutopilotDecisionAuthorityToolInput {
+  objectiveKey: string;
+  persist?: boolean;
+}
+
+export interface AutopilotDecisionPayloadTemplate {
+  toolName: string;
+  memoryClass: string;
+  content: string;
+  effectSummary: string;
+  metadata: Record<string, string>;
+}
+
+export interface AutopilotDecisionAuthorityToolPayload {
+  authority: AutopilotDecisionAuthorityPayload;
+  persisted: boolean;
+}
+
+export interface AutopilotDecisionIntentInput {
+  objectiveKey: string;
+  authorityId?: string;
+  intentState: "recorded" | "withdrawn";
+  note?: string;
+  sourceRefs?: string[];
+  persist?: boolean;
+}
+
+export interface AutopilotDecisionIntentPayload {
+  authority: AutopilotDecisionAuthorityPayload;
+  persisted: boolean;
+  payloadTemplate?: AutopilotDecisionPayloadTemplate | undefined;
+}
+
+export interface AutopilotDecisionReconcilePlanInput {
+  objectiveKey: string;
+  authorityId?: string;
+}
+
+export interface AutopilotDecisionReconcilePlanPayload {
+  mode: "dry_run";
+  authority: AutopilotDecisionAuthorityPayload;
+  scopeStatus: Record<string, unknown> | null;
+  payloadTemplate: AutopilotDecisionPayloadTemplate;
+}
+
+export interface AutopilotArtifactSummaryPayloadProjection {
+  closeoutLines: string[];
+  operatorLines: string[];
+  historyLines: string[];
+}
+
+export interface AutopilotLearnedArtifactSummaryPayload {
+  reportId: string;
+  reportRef: string;
+  objectiveKey: string;
+  lifecycleState: string;
+  payloadKind: "artifact_summary";
+  stage: "shadow_only" | "advisory_only";
+  candidateOnly: true;
+  confidence: number;
+  evidenceSummary: string[];
+  noRegressionGuard: boolean;
+  governanceNoRegressionGuard: boolean;
+  sourceRefs: string[];
+  summaryProjection: AutopilotArtifactSummaryPayloadProjection;
+  publishedAtMs?: number | undefined;
+}
+
+export interface AutopilotLearnedArtifactSummaryInput {
+  objectiveKey: string;
+}
+
+export interface AutopilotPort {
+  status(input: AutopilotStatusInput): Promise<SubstrateResult<AutopilotStatusPayload | null>>;
+  history(input: AutopilotHistoryInput): Promise<SubstrateResult<AutopilotHistoryPayload | null>>;
+  authority(input: AutopilotDecisionAuthorityInput): Promise<SubstrateResult<AutopilotDecisionAuthorityPayload | null>>;
+  decisionAuthority(
+    input: AutopilotDecisionAuthorityToolInput,
+  ): Promise<SubstrateResult<AutopilotDecisionAuthorityToolPayload | null>>;
+  decisionIntent(input: AutopilotDecisionIntentInput): Promise<SubstrateResult<AutopilotDecisionIntentPayload | null>>;
+  decisionReconcilePlan(
+    input: AutopilotDecisionReconcilePlanInput,
+  ): Promise<SubstrateResult<AutopilotDecisionReconcilePlanPayload | null>>;
+  learnedArtifactSummary(
+    input: AutopilotLearnedArtifactSummaryInput,
+  ): Promise<SubstrateResult<AutopilotLearnedArtifactSummaryPayload | null>>;
+}
+
 export interface AutopilotSubstrateConfig {
   mode: AutopilotSubstrateMode;
   cwd: string;
@@ -133,6 +309,7 @@ export interface AutopilotSubstrate {
   readonly memory: MemoryPort;
   readonly govern: GovernPort;
   readonly workspace: WorkspacePort;
+  readonly autopilot: AutopilotPort;
 }
 
 export interface ResolveAutopilotSubstrateConfigInput {
@@ -154,6 +331,13 @@ export interface PhaseHydrationSnapshot {
   workspaceSummary: string[];
   planSummary: string[];
   recallSummary: string[];
+  autopilotStatusSummary: string[];
+  autopilotDecisionSummary: string[];
+  autopilotHistorySummary: string[];
+  benchmarkProjection?: AutopilotBenchmarkProjection | undefined;
+  decisionProjection?: AutopilotDecisionProjection | undefined;
+  historyProjection?: AutopilotHistoryProjection | undefined;
+  artifactSummaryProjection?: AutopilotArtifactSummaryProjection | undefined;
   governPolicySummary: string[];
   warnings: string[];
 }
@@ -171,6 +355,7 @@ export interface PreparePhaseHydrationInput {
   currentWave: number;
   currentCycle: number;
   recentReports: AutopilotReport[];
+  objectiveKey?: string;
   sessionId?: string;
   runWorkspace: RunWorkspaceSnapshot;
 }

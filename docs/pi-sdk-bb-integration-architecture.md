@@ -1,6 +1,6 @@
 # pi-sdk × BB Integration Architecture
 
-> status: V1 integration foundation landed on 2026-04-16; V2+ remains target architecture
+> status: BB substrate integration foundation remains landed; as of 2026-04-16 the `pi-sdk` product surface has also been refactored toward a **Pi-first interactive package with a shared headless driver**
 > scope: `pi-sdk` as thin autopilot orchestrator + `Boston-Bot` as memory/governance/evaluation substrate
 > baseline:
 > - `README.md`
@@ -10,6 +10,31 @@
 > - `/home/peng/dt-git/github/boston-bot-vp/ARCHITECTURE.md`
 > - `/home/peng/dt-git/github/boston-bot-vp/docs/memory-rl-technical-consensus.md`
 > - `/home/peng/dt-git/github/boston-bot-vp/docs/future/autonomous-canonicalizing-memory-substrate-roadmap-2026-04-11.md`
+
+---
+
+## 0. Current Product Split Update
+
+当前 `pi-sdk × BB` 的正确分工应读成：
+
+- `pi-sdk` = **Pi-native interactive workflow shell + shared headless driver**
+- `BB` = **truth / governance / evaluation / learning substrate**
+
+并且截至当前本地验证，live `bb-memory-mcp` 已可直接响应：
+
+- `memory_autopilot_status`
+- `memory_autopilot_canary_report`
+- `memory_autopilot_strategy_feedback_report`
+
+因此本文件中的长期边界现在需要额外补一条：
+
+> `pi-sdk` 的 primary UX 已不再是单独 CLI orchestrator，而是当前 Pi session 内的 interactive autopilot；
+> 但 **长期 canonical truth / eval / learning 仍继续在 `BB`**，而不是因为 interactive 体验增强就回流到本地 runtime。
+
+具体的 package/product 设计见：
+
+- `docs/pi-native-interactive-autopilot-design-2026-04-16.md`
+- `docs/architecture.md`
 
 ---
 
@@ -672,6 +697,152 @@ raw phase evidence
 3. repair strategy ranker
 4. review verdict classifier
 5. artifact summarizer
+
+## 12.5 Boundary Freeze — benchmark promotion and learned surfaces (2026-04-16)
+
+### Benchmark objective family
+
+下一阶段的 benchmark objective 应先冻结为当前 evidence surface 已能支撑的三类：
+
+1. **objective closeout benchmark**
+   - inputs: `autopilot_run` / `autopilot_objective` head、closeout projection、validation artifacts
+   - KPIs: `objective closeout rate`、`time to closeout`、`cost per accepted wave`
+2. **wave fidelity benchmark**
+   - inputs: `autopilot_wave`、`autopilot_workset`、raw `autopilot_report`、review/replan residual evidence
+   - KPIs: `wave completion rate`、`review overturn rate`、`residual escape rate`
+3. **strategy benchmark**
+   - inputs: replay / shadow / canary comparisons over retrieval、routing、repair、review candidates
+   - KPIs: `memory hit usefulness`、`route improvement delta`、reward / utility delta
+
+冻结规则：
+
+- benchmark truth 继续以 **BB canonical head + raw evidence** 为主
+- `pi-sdk` 只消费、投影、对齐这些 truth，不再发明第二套本地 benchmark truth path
+- 如果 benchmark 需要新的 server-owned truth path 才能成立，应停止当前 repo-local slice，而不是在 `pi-sdk` 内假造 state
+
+### Promotion / rollback evidence shape
+
+任何 promotion / rollback 决策至少要携带一份最小可审计 evidence bundle：
+
+1. baseline strategy id 与 candidate strategy id
+2. benchmark family、evaluation window、sample size
+3. 对应 KPI 的 delta 与 summary verdict
+4. 关联 evidence artifacts：`autopilot_report`、validation summary、replay/shadow/canary outputs
+5. 明确 rollback trigger 与 reason
+
+promotion 原则：
+
+- 只有当 candidate 在目标 benchmark family 上带来正向收益，且**没有明显恶化** `review overturn rate` 或 `residual escape rate` 时，才允许 promote
+- 若收益不稳定、证据不可追溯、或 rollback trigger 无法定义，则保持 baseline / rollback，而不是继续放大自动化范围
+
+### Learned-surface ownership freeze
+
+允许进入下一阶段实现与实验的 learned surfaces 仍然只限于：
+
+1. retrieval reranker
+2. next-step route classifier
+3. repair strategy ranker
+4. review verdict classifier
+5. artifact summarizer
+
+这些 learned surfaces 必须保持 narrow component 边界，不应演变成：
+
+- `pi-sdk` 内的本地 benchmark / promotion registry
+- orchestrator 内硬编码 heuristic tree 伪装成“learning”
+- replay/eval 尚未稳定前的 end-to-end coding model fine-tuning
+
+### Stop boundary for local execution
+
+当且仅当工作仍可被限制在现有 repo-owned seams 时，才继续 repo-local execution；当前 seams 主要是：
+
+- `src/sdk/orchestrator.ts`
+- `src/substrate/types.ts`
+- `src/substrate/hydration.ts`
+- `src/extension/index.ts`
+
+以下任一条件出现，都应停止当前 slice 并转 handoff / replan：
+
+1. 需要新的 server-owned truth path 来承载 benchmark / promotion state
+2. 需要新的本地 registry 来保存 benchmark / promotion artifacts
+3. 需要修改 Pi core、`ModelRegistry` 或 extension runtime 才能继续
+
+## 12.6 Post-P8 local projection of server-owned benchmark readiness
+
+在 `P8` 之后，`pi-sdk` 允许继续做的 repo-local continuation 进一步收窄为：
+
+1. 从 BB 消费 **`memory_autopilot_status` aggregate**
+2. 把该 aggregate 投影到现有 repo-owned operator surfaces：
+   - Pi interactive `/autopilot-status` / overlay
+   - closeout summary
+   - hydration context
+3. objective key 可以在本地稳定导出，但该 key 仅用于查询 BB server-owned readiness truth
+4. 本地 projection 不得演变成：
+   - benchmark / promotion registry
+   - replay/eval ledger
+   - canary decision ownership
+
+因此，post-P8 的 benchmark/promotion readiness MVP 应理解为：
+
+- `BB` 继续拥有 truth
+- `pi-sdk` 只拥有 projection / operator visibility
+- 若 aggregate truth 不足，应补 BB / env，而不是让 `pi-sdk` 发明替代 state
+
+## 12.7 Post-P9 operator history inspection MVP
+
+`P10` 的最小历史 inspection 继续冻结为：
+
+1. **current status truth**
+   - tool/resource owner: `memory_autopilot_status` + `memory://autopilot/status/{objective_key}`
+   - semantic role: 当前 objective 的 queue/head/replay/canary/strategy aggregate snapshot
+2. **recent canary history**
+   - resource owner: `memory://autopilot/canary/reports/recent`
+   - semantic role: recent server-owned canary report ledger rows
+3. **recent strategy-feedback history**
+   - resource owner: `memory://autopilot/strategy-feedback/reports/recent`
+   - semantic role: recent candidate-only strategy-feedback report ledger rows
+4. **repo-local projection law**
+   - `pi-sdk` MAY read current status + recent canary/strategy resources
+   - `pi-sdk` MAY filter these recent rows by current objective key for bounded operator inspection
+   - `pi-sdk` MUST NOT treat that filtering step as local history ownership
+5. **deferred truth law**
+   - objective-scoped status-history list, if later needed, MUST be added server-side in `BB`
+   - `pi-sdk` MUST NOT synthesize a fake local status-history ledger while waiting for that surface
+
+因此，`P10` 的 MVP 历史 inspection 应理解为：
+
+- `BB` owns current snapshot truth and report-history ledger truth
+- `pi-sdk` only projects current status + recent canary/strategy history into operator surfaces
+- richer historical comparison remains future work, but still BB-owned
+
+## 12.8 Post-P10 promotion-governance boundary freeze
+
+`P11.S3/S4` 落地后，promotion governance 的当前边界进一步冻结为：
+
+1. **当前已被证实存在的 BB-owned autopilot surfaces**
+   - current status: `memory_autopilot_status` + `memory://autopilot/status/{objective_key}`
+   - canary report truth: `memory_autopilot_canary_report` + `memory://autopilot/canary/reports/recent` / `{report_id}`
+   - strategy-feedback report truth: `memory_autopilot_strategy_feedback_report` + `memory://autopilot/strategy-feedback/reports/recent` / `{report_id}`
+   - decision authority truth: `memory_autopilot_decision_authority` + `memory://autopilot/decision-authority/current/{objective_key}` / `recent` / `{authority_id}`
+   - bounded operator control tools: `memory_autopilot_decision_intent` + `memory_autopilot_decision_reconcile_plan`
+2. **当前 surface 语义 law**
+   - `canary_verdict` / `rollout_decision` 仍是 durable **report/evaluation truth**，不是 client/runtime 可直接据此完成最终 route mutation 的 authority
+   - strategy-feedback 仍是 `candidate-only` + `advisory-only`
+   - final governed `promote | hold | rollback` truth 现在位于单独的 BB-owned decision-authority layer
+   - reconcile-plan 目前仍是 `dry_run` canonical `memory_store` payload visibility，不是 local direct apply path
+3. **repo-local action law**
+   - `pi-sdk` 当前只允许读取、投影、解释这些 surfaces
+   - repo-local projection target 被限定在 status / overlay / hydration / closeout / runtime summary 等既有 seams
+   - 若存在 operator control action，也只能走 **BB-owned decision / reconcile path**，不能在本地拥有 durable decision state
+   - `pi-sdk` MUST NOT 创建 local decision ledger / promotion registry / rollback store / reconcile truth cache
+4. **honest stop law**
+   - 若后续工作需要超出当前 BB authority / intent / dry-run reconcile semantics 的新 truth path，则必须继续在 BB contract/resource/tool side 增补
+   - `pi-sdk` MUST NOT 通过本地缓存、手工状态机、或 UI convenience 把 advisory/report/authority projection surfaces 偷渡成 final governed decision truth
+
+因此，当前 `P11` 结论应理解为：
+
+- `BB` 已拥有 readiness / canary / feedback report truth + separate decision-authority truth
+- `pi-sdk` 仍只拥有 projection / bounded control direction
+- governed rollout 继续遵守 BB-owned authority + canonical `manual_reconcile` law，而不是本地补偿
 
 ---
 

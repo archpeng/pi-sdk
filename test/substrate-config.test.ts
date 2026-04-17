@@ -60,4 +60,14 @@ test("local substrate keeps memory, governance, and workspace calls as safe no-o
   assert.equal(scan.ok, true);
   assert.deepEqual(scan.data, []);
   assert.match(scan.summary, /local workspace/i);
+
+  const autopilotStatus = await substrate.autopilot.status({ objectiveKey: "objective:abc" });
+  assert.equal(autopilotStatus.ok, true);
+  assert.equal(autopilotStatus.data, null);
+  assert.match(autopilotStatus.summary, /local autopilot/i);
+
+  const autopilotHistory = await substrate.autopilot.history({ objectiveKey: "objective:abc", limit: 3 });
+  assert.equal(autopilotHistory.ok, true);
+  assert.equal(autopilotHistory.data, null);
+  assert.match(autopilotHistory.summary, /local autopilot/i);
 });

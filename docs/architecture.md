@@ -1,36 +1,38 @@
 # pi-sdk Architecture
 
+> current product stance (2026-04-16): **Pi-native interactive autopilot package with a shared headless driver**
+> related: `README.md`, `docs/pi-sdk-bb-integration-architecture.md`, `docs/pi-native-interactive-autopilot-design-2026-04-16.md`
+
 ## 1. Core Goal
 
-`pi-sdk` 的核心目标不是立刻做一个“万能全自动程序员”，而是先把一条 **可运行、可验证、可扩展** 的自动推进主路径落成 MVP。
+`pi-sdk` 的核心目标仍然不是立刻做一个“万能全自动程序员”，而是把一条 **可运行、可验证、可继续演进** 的 autopilot 主路径做成可复用产品面。
 
-当前项目要验证的技术判断是：
+但当前产品心智已经从早期的 **CLI-first orchestrator** 收敛为：
 
-- **不先改 Pi core**
-- 先用 **Pi extension + Pi SDK orchestrator** 的组合
-- 把一个编程 agent 的大循环做成：
-  - `master_plan`
-  - `wave_plan`
-  - `execute`
-  - `review`
-  - `replan`
-  - `closeout`
+> **Pi-native interactive autopilot package with a shared headless driver**
+
+固定表达：
+
+- **primary UX** = 当前 Pi session 内的 interactive autopilot
+- **secondary UX** = CLI / headless / batch driver
+- **truth / eval / learning** = `BB` substrate
+- **Pi core** = 不做 patch
 
 ### 当前明确目标
 
-1. 让 agent 能先形成大推进纲领（master plan）
-2. 把目标拆成 waves，而不是一次性全量执行
-3. 对每个 wave 做线性推进：执行 -> review -> replan
-4. 用结构化协议而不是自由文本猜状态
-5. 形成一个可以继续演进到 budget / checkpoint / resume / subagent 的骨架
+1. 在当前 Pi session 内驱动 `master_plan -> wave_plan -> execute -> review -> replan -> closeout`
+2. 用结构化协议而不是自由文本猜状态
+3. 让 pause / resume / stop / reconstruction 成为真实产品能力
+4. 让 CLI/headless 与 interactive driver 复用同一 shared core
+5. 保持 `pi-sdk` 为 thin workflow shell，而不是把长期 truth / eval / learning 拉回本地
 
 ### 当前非目标
 
 1. 不是 Pi core patch project
-2. 不是第一版就做多 sub-agent 并发系统
-3. 不是第一版就做完整 git rollback / checkpoint 系统
-4. 不是第一版就做 repo-level `PLAN / STATUS / WORKSET` docs 控制面
-5. 不是第一版就做运行时 observability / governance 全量闭环
+2. 不是新的 host runtime / second-session wrapper
+3. 不是第一版就做多 sub-agent 并发系统
+4. 不是把 benchmark / promotion / learning registry 本地化到 `pi-sdk`
+5. 不是把 `BB` 变成在线 phase scheduler
 
 ---
 
@@ -38,43 +40,39 @@
 
 ```mermaid
 flowchart TD
-    U[User / CLI goal] --> O[SDK Orchestrator\nsrc/sdk/orchestrator.ts]
-    O --> RL[DefaultResourceLoader\nloads bundled extension]
-    RL --> E[Pi Extension\nsrc/extension/index.ts]
-    O --> SUB[Substrate ports\nMemory / Govern / Workspace]
+    U[User in current Pi session] --> E[Pi Interactive Driver\nsrc/extension/index.ts]
+    U --> C[CLI / Headless Driver\nsrc/sdk/orchestrator.ts]
+
+    E --> CORE[Shared Autopilot Core\nsrc/autopilot/*]
+    C --> CORE
+
+    CORE --> SUB[Substrate ports\nMemory / Govern / Workspace]
     SUB --> BB[BB HTTP MCP servers\nmemory / govern / tools]
-    O --> P[Phase Prompt Builder\nsrc/shared/prompts.ts]
-    O --> S[Pi AgentSession]
-    P --> S
-    E --> T[autopilot_report tool\n/autopilot-status command]
-    E --> G[tool_call governance preflight]
-    G --> BB
-    S --> M[LLM + Built-in Pi tools\nread/bash/edit/write]
-    M --> R[Target Repo]
-    M --> T
-    T --> EV[tool_execution_end / tool_result events]
-    EV --> O
-    O --> SM[Outer-loop state machine\nsrc/shared/state-machine.ts]
-    SM --> O
-    O --> C[Closeout summary / session file]
-    O --> W[raw phase evidence writeback]
-    W --> BB
+
+    E --> PI[Current Pi session\nsame-session phase dispatch]
+    PI --> TOOLS[Pi built-in tools\nread/bash/edit/write]
+    TOOLS --> R[Target repo]
+    TOOLS --> REPORT[autopilot_report]
+    REPORT --> E
+    C --> S[Headless AgentSession]
+    S --> REPORT
 ```
 
 ### Design Summary
 
-当前架构已经从最早的 **双层 protocol MVP** 演进为 **三段式薄壳**：
+当前架构应理解为 **四段式薄壳**：
 
-- **in-band layer**：extension 在 agent 会话内部提供结构化状态上报与 governance preflight hook
-- **out-of-band layer**：SDK orchestrator 在 agent 会话外部控制 phase loop
-- **substrate layer**：通过 `MemoryPort / GovernPort / WorkspacePort` 把 BB 作为外接 substrate，而不是把 tool names 洒回主循环
+- **Pi interactive driver**：当前 session 内的 phase dispatch、pause/resume/stop、runtime reconstruction、status/widget UI
+- **CLI/headless driver**：secondary batch wrapper，仍可跑 bounded automation
+- **shared autopilot core**：protocol / prompt builder / workflow engine / runtime state / closeout helper
+- **substrate layer**：通过 `MemoryPort / GovernPort / WorkspacePort` 把 `BB` 作为 truth / governance / workspace substrate
 
-这意味着：
+固定原则：
 
-- 模型负责完成当前 phase 并产出结构化结果
-- orchestrator 负责 phase 驱动、最小 hydration、raw evidence writeback
-- substrate 负责 memory / governance / workspace truth delivery
-- 不靠解析 assistant 的自然语言段落来猜是否完成
+- 当前 Pi session 是 interactive path 的执行现场
+- CLI 仍保留，但不再是主产品面
+- `BB` 继续负责 remember / judge / learn / audit
+- 不靠解析 assistant prose 猜 phase completion
 
 ---
 
@@ -82,24 +80,25 @@ flowchart TD
 
 | Module | Key Files | Responsibility | Owns | Does Not Own |
 |---|---|---|---|---|
-| Package surface | `package.json`, `src/index.ts` | 暴露 CLI 与可安装 Pi package 入口 | npm package identity, bin, extension registration | runtime orchestration logic itself |
-| SDK orchestrator | `src/sdk/orchestrator.ts` | 创建 session、驱动 phase loop、收集报告、决定 phase 跳转 | outer loop control, run lifecycle, CLI options | in-session tool semantics |
-| Extension | `src/extension/index.ts` | 向 Pi 注册 `autopilot_report`、`/autopilot-status`，并在高风险 tool call 前做 govern preflight | structured report protocol, UI status, execution gate hook | phase scheduling |
+| Package surface | `package.json`, `src/index.ts` | 暴露 Pi package + CLI/headless entrypoint | npm package identity, bin, extension registration | workflow truth / eval substrate |
+| Pi interactive driver | `src/extension/index.ts` | 在当前 Pi session 内驱动 autopilot phase continuation | commands, same-session scheduling, runtime persistence, status/widget UI, governance preflight | second hidden session / headless orchestration |
+| CLI / headless driver | `src/sdk/orchestrator.ts` | bounded batch wrapper over shared core | argv parsing, session bootstrap, stdout/stderr summary | interactive scheduling semantics |
+| Shared autopilot core | `src/autopilot/*.ts` | 共享协议、prompt builder、workflow engine、runtime state、closeout helper | reusable business logic for both drivers | Pi runtime API plumbing / BB adapter details |
+| Shared compatibility layer | `src/shared/*.ts` | 旧路径兼容 re-export | import stability during refactor | new business logic ownership |
 | Substrate layer | `src/substrate/*.ts` | 提供 `MemoryPort / GovernPort / WorkspacePort`、BB HTTP MCP client、hydration/writeback helper | substrate config, BB adapter seam, fail-open/fail-closed boundary | phase scheduling itself |
-| Shared protocol | `src/shared/types.ts` | 定义 `phase/status/report` schema 与默认参数 | protocol vocabulary | business logic |
-| Shared prompts | `src/shared/prompts.ts` | 为每个 phase 生成定制 prompt | phase-specific expectations | phase transitions |
-| Shared state machine | `src/shared/state-machine.ts` | 把 review/replan status 映射为 outer-loop decision | transition logic | prompt content / tool implementation |
 | Target repo | external `--cwd` repo | 被 agent 读取、修改、验证的真实工作区 | code, tests, build artifacts | orchestration logic |
 | Pi runtime | `@mariozechner/pi-coding-agent` | session, model, tools, event stream, extension runtime | agent execution substrate | project-specific autopilot policy |
 
 ### Boundary Principle
 
-核心边界是：
+当前核心边界已经更新为：
 
-- **Extension 负责“状态表达”**
-- **Orchestrator 负责“流程控制”**
+- **interactive driver 负责当前 session 内调度**
+- **headless driver 负责 batch wrapper**
+- **shared core 负责协议与状态逻辑**
+- **BB 负责 truth / eval / learning substrate**
 
-这避免把“自动推进”全部塞进一个超长 prompt，也避免把所有状态机逻辑都塞进 extension event handler。
+因此 `pi-sdk` 不应再把“隐藏第二个 `AgentSession` 的 extension wrapper”误当作真正的 in-Pi 方案。
 
 ---
 
@@ -175,7 +174,7 @@ flowchart TD
 
 ### 5.1 Phases
 
-定义于：`src/shared/types.ts`
+定义于：`src/autopilot/protocol.ts`
 
 - `master_plan`
 - `wave_plan`
@@ -186,7 +185,7 @@ flowchart TD
 
 ### 5.2 Statuses
 
-定义于：`src/shared/types.ts`
+定义于：`src/autopilot/protocol.ts`
 
 - `continue`
 - `completed`
@@ -278,7 +277,7 @@ stateDiagram-v2
 
 ### 6.3 Current decision mapping
 
-定义于：`src/shared/state-machine.ts`
+定义于：`src/autopilot/engine.ts`
 
 | review status | orchestrator decision |
 |---|---|
@@ -481,32 +480,113 @@ stateDiagram-v2
 | Substrate config / adapter seam | `src/substrate/index.ts` |
 | BB HTTP MCP adapter | `src/substrate/bb.ts` |
 | Prompt hydration / raw evidence helper | `src/substrate/hydration.ts` |
-| Shared prompt generation | `src/shared/prompts.ts` |
-| Transition logic | `src/shared/state-machine.ts` |
-| Types / report schema | `src/shared/types.ts` |
+| Shared prompt generation | `src/autopilot/phase-prompt.ts` |
+| Transition logic | `src/autopilot/engine.ts` |
+| Types / report schema | `src/autopilot/protocol.ts` |
 | Public export surface | `src/index.ts` |
 
 ---
 
 ## 11. Current Verification
 
-当前能证明这套骨架与 substrate foundation 已落地的最小证据：
+当前能证明这套骨架、Pi-first runtime hardening、以及 substrate foundation 已落地的最小证据：
 
 - `npm test`
 - `npm run typecheck`
 - `npm run build`
 - `node dist/sdk/orchestrator.js --help`
+- targeted interactive tests：same-session dispatch / pause / resume / rebuild / overlay inspector
 - live BB smoke：`memory_recall / memory_store / govern_policy / govern_evaluate / workspace_scan / plan_sync` read path + write path 可达
+- live autopilot BB smoke：`memory_autopilot_status` / `memory_autopilot_canary_report` / `memory_autopilot_strategy_feedback_report` tool path 可达
 
 这说明：
 
 - TypeScript 编译通过
-- targeted TDD 覆盖 substrate/config/governance/client seam
+- targeted TDD 已覆盖 shared core、interactive runtime、substrate/config/governance/client seam
 - CLI 可运行
 - extension、SDK、substrate seam 已接通
-- BB HTTP MCP integration foundation 已真实落地
+- operator-facing degraded-mode / overlay visibility 已在 repo-local seams 内落地
+- BB HTTP MCP integration foundation 与 autopilot-family live tool path 已真实落地
 
 但这还不等于“自动推进系统已经 production-ready”。
+
+## 11.1 Benchmark / promotion / learned-surface execution boundary
+
+对当前 repo 的下一刀，应先冻结一个**不跨 repo-owned seams** 的执行边界：
+
+1. benchmark / promotion truth 继续以 BB canonical heads、raw `autopilot_report` evidence、validation artifacts 为主
+2. `pi-sdk` 本地只负责消费、投影、对齐，不额外发明第二套 benchmark truth path
+3. 允许继续本地推进的 surface，仍限于现有 seams：
+   - `src/sdk/orchestrator.ts`
+   - `src/substrate/types.ts`
+   - `src/substrate/hydration.ts`
+   - `src/extension/index.ts`
+4. learned surface 只允许收敛到 narrow components：retrieval reranker、next-step route classifier、repair strategy ranker、review verdict classifier、artifact summarizer
+5. 一旦需要新的 truth path、本地 registry、或 Pi core / `ModelRegistry` / extension runtime patch，就应停止 repo-local execution 并转 handoff
+
+这条边界保证 `pi-sdk` 继续是 thin orchestration shell，而不是偷渡成 benchmark registry 或 replay/eval runtime。
+
+## 11.2 Post-P8 benchmark projection rule
+
+在 `P8` 之后，允许继续在本 repo 内推进的 benchmark / promotion-readiness 工作，进一步收窄为：
+
+1. 只消费 **server-owned `memory_autopilot_status` aggregate**，不在本地拼第二套 benchmark ledger
+2. 只把该 truth 投影到现有 operator-facing seams：
+   - status / widget / overlay
+   - closeout summary
+   - hydration context
+3. objective key 可以在本地从 `cwd + goal` 稳定导出，但它只是 **query key**，不是本地 benchmark truth 所有权声明
+4. 若 projection 继续推进需要新的 BB truth path、本地 registry、或 Pi core/runtime patch，应停止并 handoff
+
+这保证 post-P8 continuation 仍然是 thin-shell consumption / projection，而不是重新把 benchmark ownership 拉回 `pi-sdk`。
+
+## 11.3 Post-P9 benchmark-history inspection rule
+
+在 `P9` 之后，允许继续在本 repo 内推进的历史 inspection MVP 进一步冻结为：
+
+1. **current objective status** 继续通过 `memory_autopilot_status` 消费
+2. **recent historical inspection** 当前只允许来自已存在的 server-owned report resources：
+   - `memory://autopilot/canary/reports/recent`
+   - `memory://autopilot/strategy-feedback/reports/recent`
+3. `pi-sdk` 可以：
+   - 读取这些 recent report resources
+   - 按当前 objective key 做 bounded filtering / projection
+   - 把结果投影到 status / overlay / hydration / closeout 等现有 seams
+4. `pi-sdk` 不可以：
+   - 创建本地 benchmark-history store / registry / ledger
+   - 把 recent report filtering 升格为本地 truth ownership
+   - 伪造不存在的 status-history list truth
+5. 若未来需要 objective-scoped status history list，也必须继续在 `BB` server-owned truth side 增补，而不是在本地补偿
+
+这保证 `P10` 的 operator inspection 仍然是 **BB-owned history truth + repo-local bounded projection**。
+
+## 11.4 Post-P10 promotion-governance boundary rule
+
+在 `P11.S3/S4` 落地后，`pi-sdk` 对 promotion-governance 的 repo-local continuation 进一步冻结为：
+
+1. 当前已证实可消费的 BB surfaces 包括：
+   - `memory_autopilot_status`
+   - `memory_autopilot_canary_report` + canary report resources
+   - `memory_autopilot_strategy_feedback_report` + strategy-feedback report resources
+   - `memory_autopilot_decision_authority`
+   - `memory_autopilot_decision_intent`
+   - `memory_autopilot_decision_reconcile_plan`
+   - `memory://autopilot/decision-authority/current/{objective_key}` / `recent` / `{authority_id}`
+2. 这些 surfaces 的当前语义必须保持诚实：
+   - `canary_verdict` / `rollout_decision` 仍是 server-owned report/eval truth，不是 repo-local runtime 可直接据此完成最终 promotion mutation 的 authority
+   - final governed `promote | hold | rollback` truth 继续在单独的 BB-owned decision-authority layer
+   - reconcile-plan 目前仍是 `dry_run` canonical `memory_store` payload visibility，不是本地 direct apply path
+3. `pi-sdk` 当前只允许：
+   - 消费这些 server-owned surfaces
+   - 在 status / overlay / hydration / closeout / bounded operator UX 内投影 authority summary 与 dry-run reconcile visibility
+   - 通过 BB-owned authority / intent / reconcile surfaces 发起 bounded control direction，而不拥有 durable decision truth
+4. `pi-sdk` 当前不允许：
+   - 创建 local decision ledger / promotion registry / rollback store / reconcile truth cache
+   - 把 canary / strategy-feedback 直接等同于完整 governed rollout lifecycle
+   - 绕过 BB `manual_reconcile` canonical path 发明 direct apply shortcut
+5. 若后续推进仍需要新的 durable promotion decision semantics，则该 path 必须继续在 `BB` server-owned side 增补；否则当前 repo-local execution 必须停止并 handoff
+
+这保证 `P11` 仍然沿着 **BB-owned decision truth + repo-local projection/control-only** 的 thin-shell 方向推进，而不是把 governed rollout 偷渡回本地 runtime。
 
 ---
 

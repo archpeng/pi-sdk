@@ -46,5 +46,28 @@ export function createLocalSubstrate(config: AutopilotSubstrateConfig): Autopilo
         return ok<PlanSyncEntry[]>("local workspace port: no remote plan sync configured", []);
       },
     },
+    autopilot: {
+      async status() {
+        return ok("local autopilot status projection unavailable", null);
+      },
+      async history() {
+        return ok("local autopilot history projection unavailable", null);
+      },
+      async authority() {
+        return ok("local autopilot decision authority projection unavailable", null);
+      },
+      async decisionAuthority() {
+        return ok("local autopilot decision authority tool unavailable", null);
+      },
+      async decisionIntent() {
+        return ok("local autopilot decision intent tool unavailable", null);
+      },
+      async decisionReconcilePlan() {
+        return ok("local autopilot decision reconcile tool unavailable", null);
+      },
+      async learnedArtifactSummary() {
+        return ok("local autopilot learned artifact summary projection unavailable", null);
+      },
+    },
   };
 }

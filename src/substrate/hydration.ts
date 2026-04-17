@@ -1,3 +1,7 @@
+import { buildAutopilotArtifactSummaryProjection } from "../autopilot/artifact-summary-projection.js";
+import { buildAutopilotBenchmarkProjection } from "../autopilot/benchmark-projection.js";
+import { buildAutopilotDecisionProjection } from "../autopilot/decision-projection.js";
+import { buildAutopilotHistoryProjection } from "../autopilot/history-projection.js";
 import type { AutopilotPhase, AutopilotReport } from "../shared/types.js";
 import type {
   BuildPhaseEvidenceInput,
@@ -101,6 +105,9 @@ export async function preparePhaseHydration(input: PreparePhaseHydrationInput): 
     workspaceSummary: shouldIncludeWorkspace(input.phase) ? summarizeWorkspace(input.runWorkspace.workspace) : [],
     planSummary: shouldIncludePlans(input.phase) ? summarizePlans(input.runWorkspace.plans) : [],
     recallSummary: [],
+    autopilotStatusSummary: [],
+    autopilotDecisionSummary: [],
+    autopilotHistorySummary: [],
     governPolicySummary: [],
     warnings: [],
   };
@@ -115,6 +122,75 @@ export async function preparePhaseHydration(input: PreparePhaseHydrationInput): 
     hydration.recallSummary = summarizeRecall(recall.data);
   } else {
     hydration.warnings.push(recall.summary);
+  }
+
+  if (input.objectiveKey) {
+    const [status, authority, history, artifactSummary] = await Promise.all([
+      input.substrate.autopilot.status({ objectiveKey: input.objectiveKey }),
+      input.substrate.autopilot.authority({ objectiveKey: input.objectiveKey }),
+      input.substrate.autopilot.history({ objectiveKey: input.objectiveKey, limit: 4 }),
+      input.substrate.autopilot.learnedArtifactSummary({ objectiveKey: input.objectiveKey }),
+    ]);
+
+    if (status.ok && status.data) {
+      const projection = buildAutopilotBenchmarkProjection(status.data);
+      if (projection) {
+        hydration.benchmarkProjection = projection;
+        hydration.autopilotStatusSummary = [
+          `objective-key: ${projection.objectiveKey}`,
+          `promotion-readiness: ${projection.summaryLine}`,
+          ...projection.detailLines.slice(0, 2).map((line) => `autopilot-status: ${line}`),
+        ];
+      }
+    } else if (!status.ok) {
+      hydration.warnings.push(status.summary);
+    }
+
+    if (authority.ok && authority.data) {
+      const reconcilePlan = authority.data.intentState === "recorded" && authority.data.reconcileState === "ready"
+        ? await input.substrate.autopilot.decisionReconcilePlan({
+            objectiveKey: input.objectiveKey,
+            authorityId: authority.data.authorityId,
+          })
+        : null;
+      if (reconcilePlan && !reconcilePlan.ok) {
+        hydration.warnings.push(reconcilePlan.summary);
+      }
+
+      const projection = buildAutopilotDecisionProjection(
+        authority.data,
+        reconcilePlan?.ok ? reconcilePlan.data : undefined,
+      );
+      if (projection) {
+        hydration.decisionProjection = projection;
+        hydration.autopilotDecisionSummary = [
+          `decision-authority: ${projection.summaryLine}`,
+          ...projection.detailLines.slice(0, 2).map((line) => `autopilot-decision: ${line}`),
+        ];
+      }
+    } else if (!authority.ok) {
+      hydration.warnings.push(authority.summary);
+    }
+
+    if (artifactSummary.ok && artifactSummary.data) {
+      hydration.artifactSummaryProjection = buildAutopilotArtifactSummaryProjection(artifactSummary.data);
+    } else if (!artifactSummary.ok) {
+      hydration.warnings.push(artifactSummary.summary);
+    }
+
+    if (history.ok || hydration.artifactSummaryProjection) {
+      const projection = buildAutopilotHistoryProjection(history.ok ? history.data : undefined, hydration.artifactSummaryProjection);
+      if (projection) {
+        hydration.historyProjection = projection;
+        hydration.autopilotHistorySummary = [
+          `history-summary: ${projection.summaryLine}`,
+          ...projection.detailLines.slice(0, 2).map((line) => `autopilot-history: ${line}`),
+        ];
+      }
+    }
+    if (!history.ok) {
+      hydration.warnings.push(history.summary);
+    }
   }
 
   if (input.phase === "execute") {
@@ -134,6 +210,9 @@ export function buildPhaseHydrationSections(_phase: AutopilotPhase, hydration: P
     ...hydration.workspaceSummary,
     ...hydration.planSummary,
     ...hydration.recallSummary,
+    ...hydration.autopilotStatusSummary,
+    ...hydration.autopilotDecisionSummary,
+    ...hydration.autopilotHistorySummary,
     ...hydration.governPolicySummary,
     ...hydration.warnings.map((warning) => `warning: ${warning}`),
   ];
