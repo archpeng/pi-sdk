@@ -1,19 +1,21 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { registerAutopilotCommands } from "./command-handlers.js";
+import { buildInteractivePrompt, writeAcceptedSliceCompletion } from "./runtime-dispatch.js";
+import {
+  buildCompactionInstructions,
+  buildContinuationContract,
+  evaluateLocalDirtyRepoGuard,
+  extractAutopilotOwnedPathsFromToolCall,
+  missingLocalControlPlaneReason,
+} from "./runtime-guardrails.js";
 import { buildAutopilotOverlayLines, buildAutopilotStatusLines, buildAutopilotWidgetLines } from "../autopilot/operator.js";
 import { buildPhasePrompt } from "../autopilot/phase-prompt.js";
 import {
-  AUTOPILOT_PAUSE_COMMAND,
   AUTOPILOT_PHASES,
   AUTOPILOT_REPORT_TOOL_NAME,
-  AUTOPILOT_RESUME_COMMAND,
-  AUTOPILOT_RUN_COMMAND,
   AUTOPILOT_STATUSES,
-  AUTOPILOT_STATUS_COMMAND,
-  AUTOPILOT_STOP_COMMAND,
-  DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE,
-  DEFAULT_AUTOPILOT_MAX_WAVES,
   deriveAutopilotObjectiveKey,
   formatAutopilotReport,
   type AutopilotReport,
@@ -23,23 +25,23 @@ import {
 import {
   AUTOPILOT_RUNTIME_ENTRY_TYPE,
   advanceInteractiveRuntime,
-  beginInteractiveRuntime,
+  haltInteractiveRuntime,
+  registerAutopilotOwnedPaths,
   restoreInteractiveRuntime,
   type AutopilotRuntimeState,
 } from "../autopilot/state.js";
 import {
-  buildPhaseHydrationSections,
   createAutopilotSubstrate,
   formatGovernanceBlockReason,
   getRuntimeSubstrate,
-  loadRunWorkspaceSnapshot,
-  preparePhaseHydration,
   resolveAutopilotSubstrateConfig,
   setRuntimeSubstrate,
   shouldBlockToolCall,
   shouldPreflightToolCall,
   type AutopilotSubstrate,
 } from "../substrate/index.js";
+
+const AUTOPILOT_COMPACT_THRESHOLD_TOKENS = 100_000;
 
 const AutopilotReportParams = Type.Object({
   phase: StringEnum(AUTOPILOT_PHASES),
@@ -48,6 +50,9 @@ const AutopilotReportParams = Type.Object({
   waveId: Type.Optional(Type.String({ description: "Wave identifier such as wave-1" })),
   stepId: Type.Optional(Type.String({ description: "Optional current step identifier" })),
   nextAction: Type.Optional(Type.String({ description: "What the outer orchestrator should do next" })),
+  decisionMode: Type.Optional(Type.Union([Type.Literal("standard"), Type.Literal("goal_directed")])),
+  decisionBasis: Type.Optional(Type.Array(Type.String({ description: "Why the chosen route best advances the overall objective" }))),
+  candidateRoutes: Type.Optional(Type.Array(Type.String({ description: "Candidate routes considered before choosing the next path" }))),
   evidence: Type.Optional(Type.Array(Type.String({ description: "Concrete validation evidence" }))),
   artifacts: Type.Optional(Type.Array(Type.String({ description: "Files or outputs produced" }))),
   risks: Type.Optional(Type.Array(Type.String({ description: "Open risks or blockers" }))),
@@ -125,60 +130,6 @@ function ensureSubstrate(cwd: string): AutopilotSubstrate {
   return substrate;
 }
 
-async function buildInteractivePrompt(
-  runtime: AutopilotRuntimeState,
-  reports: AutopilotReport[],
-  cwd: string,
-): Promise<{
-  prompt: string;
-  warnings: string[];
-  substrateMode: "local" | "bb";
-  objectiveKey: string;
-  benchmarkProjection: AutopilotRuntimeState["benchmarkProjection"];
-  decisionProjection: AutopilotRuntimeState["decisionProjection"];
-  historyProjection: AutopilotRuntimeState["historyProjection"];
-  artifactSummaryProjection: AutopilotRuntimeState["artifactSummaryProjection"];
-}> {
-  const substrate = ensureSubstrate(cwd);
-  const objectiveKey = runtime.objectiveKey ?? deriveAutopilotObjectiveKey(runtime.goal, cwd);
-  const runWorkspace = await loadRunWorkspaceSnapshot(substrate);
-  const hydration = await preparePhaseHydration({
-    substrate,
-    phase: runtime.phase,
-    goal: runtime.goal,
-    currentWave: runtime.currentWave,
-    currentCycle: runtime.currentCycle,
-    recentReports: reports.slice(-6),
-    objectiveKey,
-    runWorkspace,
-  });
-
-  const warnings = truncateWarnings([...runtime.warnings, ...runWorkspace.warnings, ...hydration.warnings]);
-  const prompt = buildPhasePrompt(runtime.phase, {
-    goal: runtime.goal,
-    currentWave: runtime.currentWave,
-    maxWaves: runtime.maxWaves,
-    currentCycle: runtime.currentCycle,
-    maxExecutionCyclesPerWave: runtime.maxExecutionCyclesPerWave,
-    recentReports: reports.slice(-6),
-    substrateContext: buildPhaseHydrationSections(runtime.phase, {
-      ...hydration,
-      warnings,
-    }),
-  });
-
-  return {
-    prompt,
-    warnings,
-    substrateMode: substrate.mode,
-    objectiveKey,
-    benchmarkProjection: hydration.benchmarkProjection,
-    decisionProjection: hydration.decisionProjection,
-    historyProjection: hydration.historyProjection,
-    artifactSummaryProjection: hydration.artifactSummaryProjection,
-  };
-}
-
 async function showStatusOverlay(
   ctx: ExtensionCommandContext,
   runtime: AutopilotRuntimeState | null,
@@ -218,6 +169,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
   let reports: AutopilotReport[] = [];
   let runtime: AutopilotRuntimeState | null = null;
   let pendingDispatch = false;
+  let compactionInFlight = false;
 
   const rebuild = (ctx: ExtensionContext) => {
     const restored = restoreInteractiveRuntime(ctx.sessionManager.getBranch() as never[]);
@@ -237,13 +189,54 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     updateUi(ctx, runtime, reports);
   };
 
+  const redispatchIfRunnable = async (ctx: ExtensionContext) => {
+    if (!runtime || runtime.mode !== "running" || runtime.dispatchState !== "ready") return;
+    await dispatchCurrentPhase(ctx);
+  };
+
   const dispatchCurrentPhase = async (ctx: ExtensionContext) => {
     if (!runtime) return;
 
-    const built = await buildInteractivePrompt(runtime, reports, ctx.cwd);
+    const built = await buildInteractivePrompt(runtime, reports, ctx.cwd, buildPhasePrompt);
+    if (built.substrateMode === "local" && !built.activeSlice) {
+      const reason = missingLocalControlPlaneReason(ctx.cwd);
+      runtime = haltInteractiveRuntime(runtime, reason);
+      persistRuntime(pi, runtime);
+      updateUi(ctx, runtime, reports);
+      notify(ctx, reason, "warning");
+      return;
+    }
+
+    let dirtyGuardWarning: string | undefined;
+    if (built.substrateMode === "local" && !runtime.lastReportTimestampMs) {
+      const decision = evaluateLocalDirtyRepoGuard({
+        runtime,
+        workspace: built.dirtyWorkspace,
+        controlPlane: built.controlPlane,
+        controlPlaneReadmePath: built.controlPlaneReadmePath,
+      });
+      if (decision.verdict === "block") {
+        const reason = decision.reason ?? "dirty repo guard blocked the initial local run";
+        runtime = haltInteractiveRuntime(runtime, reason);
+        persistRuntime(pi, runtime);
+        updateUi(ctx, runtime, reports);
+        notify(ctx, reason, "warning");
+        return;
+      }
+      dirtyGuardWarning = decision.verdict === "allow_with_warning" ? decision.reason : undefined;
+      if (dirtyGuardWarning) {
+        notify(ctx, dirtyGuardWarning, "info");
+      }
+    }
+
+    const warnings = dirtyGuardWarning && !built.warnings.includes(dirtyGuardWarning)
+      ? truncateWarnings([...built.warnings, dirtyGuardWarning])
+      : built.warnings;
+
     runtime = {
       ...runtime,
-      warnings: built.warnings,
+      warnings,
+      ...(built.activeSlice ? { activeSlice: built.activeSlice } : { activeSlice: undefined }),
       substrateMode: built.substrateMode,
       objectiveKey: built.objectiveKey,
       benchmarkProjection: built.benchmarkProjection,
@@ -265,7 +258,13 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event, ctx) => rebuild(ctx));
   pi.on("session_tree", async (_event, ctx) => rebuild(ctx));
+  pi.on("session_compact", async (_event, ctx) => {
+    compactionInFlight = false;
+    rebuild(ctx);
+    await redispatchIfRunnable(ctx);
+  });
   pi.on("session_shutdown", async (_event, ctx) => {
+    compactionInFlight = false;
     setRuntimeSubstrate(undefined);
     if (ctx.hasUI) {
       ctx.ui.setStatus("autopilot", undefined);
@@ -273,8 +272,33 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     }
   });
 
+  pi.on("before_agent_start", async (event, _ctx) => {
+    if (!runtime || runtime.mode !== "running") return undefined;
+
+    const contract = buildContinuationContract(runtime);
+    return {
+      message: {
+        customType: "autopilot-continuation-contract",
+        content: `Autopilot continuation contract active.\n${contract}`,
+        display: true,
+      },
+      systemPrompt: `${event.systemPrompt}\n\n${contract}`,
+    };
+  });
+
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === AUTOPILOT_REPORT_TOOL_NAME) return undefined;
+
+    if (runtime?.mode === "running" && runtime.substrateMode === "local") {
+      const ownedPaths = extractAutopilotOwnedPathsFromToolCall(
+        event.toolName,
+        event.input as Record<string, unknown>,
+      );
+      if (ownedPaths.length > 0) {
+        runtime = registerAutopilotOwnedPaths(runtime, ownedPaths);
+        persistRuntime(pi, runtime);
+      }
+    }
 
     const substrate = getRuntimeSubstrate();
     if (!substrate || substrate.mode !== "bb") return undefined;
@@ -307,6 +331,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
 
     reports.push(event.details.report);
     if (runtime) {
+      runtime = await writeAcceptedSliceCompletion(pi, ctx, runtime, event.details.report, persistRuntime, notify);
       runtime = advanceInteractiveRuntime(runtime, event.details.report);
       persistRuntime(pi, runtime);
       pendingDispatch = runtime.mode === "running" && runtime.dispatchState === "ready";
@@ -327,6 +352,20 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       return;
     }
 
+    const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : null;
+    if (!compactionInFlight && usage && typeof usage.tokens === "number" && usage.tokens > AUTOPILOT_COMPACT_THRESHOLD_TOKENS) {
+      compactionInFlight = true;
+      ctx.compact({
+        customInstructions: buildCompactionInstructions(runtime),
+        onError: (error) => {
+          compactionInFlight = false;
+          notify(ctx, `Autopilot compaction failed: ${error.message}`, "warning");
+          void redispatchIfRunnable(ctx);
+        },
+      });
+      return;
+    }
+
     await dispatchCurrentPhase(ctx);
   });
 
@@ -341,6 +380,18 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     ],
     parameters: AutopilotReportParams,
     async execute(_toolCallId, params) {
+      if (runtime && params.phase !== runtime.phase) {
+        const reason = `autopilot_report phase must match the current runtime phase (${runtime.phase})`;
+        runtime = haltInteractiveRuntime(runtime, reason);
+        persistRuntime(pi, runtime);
+        throw new Error(reason);
+      }
+      if (runtime?.activeSlice && params.stepId !== runtime.activeSlice.stepId) {
+        const reason = `autopilot_report stepId must match the active slice (${runtime.activeSlice.stepId})`;
+        runtime = haltInteractiveRuntime(runtime, reason);
+        persistRuntime(pi, runtime);
+        throw new Error(reason);
+      }
       const report: AutopilotReport = {
         phase: params.phase,
         status: params.status,
@@ -348,6 +399,9 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
         waveId: params.waveId,
         stepId: params.stepId,
         nextAction: params.nextAction,
+        decisionMode: params.decisionMode,
+        decisionBasis: [...(params.decisionBasis ?? [])],
+        candidateRoutes: [...(params.candidateRoutes ?? [])],
         evidence: [...(params.evidence ?? [])],
         artifacts: [...(params.artifacts ?? [])],
         risks: [...(params.risks ?? [])],
@@ -371,145 +425,22 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand(AUTOPILOT_RUN_COMMAND, {
-    description: "Start Pi-native autopilot in the current session",
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      const goal = args.trim();
-      if (!goal) {
-        notify(ctx, `Usage: /${AUTOPILOT_RUN_COMMAND} <goal>`, "warning");
-        return;
-      }
-      if (runtime && runtime.mode === "running" && runtime.dispatchState === "awaiting_report") {
-        notify(ctx, "Autopilot is already running in this session.", "warning");
-        return;
-      }
-
-      const substrate = ensureSubstrate(ctx.cwd);
-      runtime = {
-        ...beginInteractiveRuntime({
-          goal,
-          maxWaves: DEFAULT_AUTOPILOT_MAX_WAVES,
-          maxExecutionCyclesPerWave: DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE,
-          objectiveKey: deriveAutopilotObjectiveKey(goal, ctx.cwd),
-        }),
-        substrateMode: substrate.mode,
-      };
-      reports = [];
-      pendingDispatch = false;
-      persistRuntime(pi, runtime);
-      updateUi(ctx, runtime, reports);
-      await dispatchCurrentPhase(ctx);
+  registerAutopilotCommands({
+    pi,
+    getRuntime: () => runtime,
+    setRuntime: (nextRuntime) => {
+      runtime = nextRuntime;
     },
-  });
-
-  pi.registerCommand(AUTOPILOT_RESUME_COMMAND, {
-    description: "Resume Pi-native autopilot in the current session",
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      const goal = args.trim();
-
-      if (!runtime) {
-        if (!goal) {
-          notify(ctx, `Usage: /${AUTOPILOT_RESUME_COMMAND} <goal>`, "warning");
-          return;
-        }
-        runtime = beginInteractiveRuntime({
-          goal,
-          maxWaves: DEFAULT_AUTOPILOT_MAX_WAVES,
-          maxExecutionCyclesPerWave: DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE,
-          objectiveKey: deriveAutopilotObjectiveKey(goal, ctx.cwd),
-        });
-      } else if (runtime.mode === "closed" && goal) {
-        runtime = beginInteractiveRuntime({
-          goal,
-          maxWaves: runtime.maxWaves,
-          maxExecutionCyclesPerWave: runtime.maxExecutionCyclesPerWave,
-          objectiveKey: deriveAutopilotObjectiveKey(goal, ctx.cwd),
-        });
-      } else if (runtime.mode === "closed") {
-        notify(ctx, "Autopilot is already closed. Start a new run with /autopilot-run <goal>.", "warning");
-        return;
-      }
-
-      const substrate = ensureSubstrate(ctx.cwd);
-      const resolvedGoal = goal || runtime.goal;
-      runtime = {
-        ...runtime,
-        goal: resolvedGoal,
-        mode: "running",
-        substrateMode: substrate.mode,
-        objectiveKey: deriveAutopilotObjectiveKey(resolvedGoal, ctx.cwd),
-        ...(goal
-          ? {
-              benchmarkProjection: undefined,
-              decisionProjection: undefined,
-              historyProjection: undefined,
-              artifactSummaryProjection: undefined,
-            }
-          : {}),
-        updatedAtMs: Date.now(),
-      };
-      persistRuntime(pi, runtime);
-      updateUi(ctx, runtime, reports);
-      if (runtime.dispatchState === "ready") {
-        await dispatchCurrentPhase(ctx);
-      }
+    getReportsCount: () => reports.length,
+    setPendingDispatch: (pending) => {
+      pendingDispatch = pending;
     },
-  });
-
-  pi.registerCommand(AUTOPILOT_PAUSE_COMMAND, {
-    description: "Pause automatic next-phase scheduling",
-    handler: async (_args, ctx: ExtensionCommandContext) => {
-      if (!runtime) {
-        notify(ctx, "No autopilot state recorded yet.", "info");
-        return;
-      }
-      runtime = {
-        ...runtime,
-        mode: "paused",
-        updatedAtMs: Date.now(),
-      };
-      persistRuntime(pi, runtime);
-      updateUi(ctx, runtime, reports);
-      notify(ctx, "Autopilot paused. Use /autopilot-resume to continue.", "info");
-    },
-  });
-
-  pi.registerCommand(AUTOPILOT_STOP_COMMAND, {
-    description: "Stop automatic autopilot continuation",
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      if (!runtime) {
-        notify(ctx, "No autopilot state recorded yet.", "info");
-        return;
-      }
-      runtime = {
-        ...runtime,
-        mode: "stopping",
-        updatedAtMs: Date.now(),
-      };
-      pendingDispatch = false;
-      persistRuntime(pi, runtime);
-      updateUi(ctx, runtime, reports);
-      if (args.trim() === "now" && !ctx.isIdle()) {
-        ctx.abort();
-      }
-      notify(ctx, "Autopilot stop requested. No further phases will be auto-queued.", "warning");
-    },
-  });
-
-  pi.registerCommand(AUTOPILOT_STATUS_COMMAND, {
-    description: "Show the current Pi-native autopilot state",
-    handler: async (args, ctx: ExtensionCommandContext) => {
-      if (args.trim() === "overlay") {
-        const shown = await showStatusOverlay(ctx, runtime, reports);
-        if (shown) return;
-      }
-
-      const lines = buildAutopilotStatusLines(runtime, reports);
-      if (lines.length === 0) {
-        notify(ctx, "No autopilot state recorded yet.", "info");
-        return;
-      }
-      notify(ctx, lines.join("\n"), "info");
-    },
+    ensureSubstrate,
+    persistRuntime,
+    updateUi: (ctx, nextRuntime) => updateUi(ctx, nextRuntime, reports),
+    notify,
+    dispatchCurrentPhase,
+    showStatusOverlay: (ctx, nextRuntime) => showStatusOverlay(ctx, nextRuntime, reports),
+    statusLines: (nextRuntime) => buildAutopilotStatusLines(nextRuntime, reports),
   });
 }

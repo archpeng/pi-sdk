@@ -4,6 +4,7 @@ import { buildAutopilotDecisionProjection } from "../autopilot/decision-projecti
 import { buildAutopilotHistoryProjection } from "../autopilot/history-projection.js";
 import type { AutopilotPhase, AutopilotReport } from "../shared/types.js";
 import type {
+  ActiveControlPlaneSnapshot,
   BuildPhaseEvidenceInput,
   MemoryRecallPayload,
   PhaseHydrationSnapshot,
@@ -22,6 +23,19 @@ function summarizePlans(entries: PlanSyncEntry[]): string[] {
     const progress = `${entry.done}/${entry.checklist_items}`;
     return `plan: ${entry.file} (${progress} done, ${entry.in_progress} in progress)`;
   });
+}
+
+function summarizeControlPlane(snapshot: ActiveControlPlaneSnapshot | null): string[] {
+  if (!snapshot) return [];
+  const lines = [
+    `active-pack: ${snapshot.readme.activePack.worksetPath}`,
+    `active-slice: ${snapshot.activeStage.stageId} owner=${snapshot.activeStage.owner} state=${snapshot.activeStage.state}`,
+  ];
+  const primaryObjective = snapshot.activeStage.objectives[0];
+  if (primaryObjective) {
+    lines.push(`active-slice-objective: ${primaryObjective}`);
+  }
+  return lines;
 }
 
 function summarizeRecallItem(item: unknown): string | null {
@@ -72,15 +86,18 @@ function lastReportSummary(recentReports: AutopilotReport[]): string | undefined
 export async function loadRunWorkspaceSnapshot(substrate: PreparePhaseHydrationInput["substrate"]): Promise<RunWorkspaceSnapshot> {
   const scan = await substrate.workspace.scan({ workspaces: [substrate.config.cwd] });
   const plans = await substrate.workspace.planSync({ docsPath: substrate.config.planDocsPath });
+  const controlPlane = substrate.controlPlane ? await substrate.controlPlane.snapshot() : null;
 
   const warnings = [
     ...(scan.ok ? [] : [scan.summary]),
     ...(plans.ok ? [] : [plans.summary]),
+    ...(controlPlane && !controlPlane.ok ? [controlPlane.summary] : []),
   ];
 
   return {
     workspace: scan.ok ? scan.data : [],
     plans: plans.ok ? plans.data : [],
+    controlPlane: controlPlane?.ok ? controlPlane.data : null,
     warnings,
   };
 }
@@ -104,6 +121,7 @@ export async function preparePhaseHydration(input: PreparePhaseHydrationInput): 
   const hydration: PhaseHydrationSnapshot = {
     workspaceSummary: shouldIncludeWorkspace(input.phase) ? summarizeWorkspace(input.runWorkspace.workspace) : [],
     planSummary: shouldIncludePlans(input.phase) ? summarizePlans(input.runWorkspace.plans) : [],
+    controlPlaneSummary: shouldIncludePlans(input.phase) ? summarizeControlPlane(input.runWorkspace.controlPlane) : [],
     recallSummary: [],
     autopilotStatusSummary: [],
     autopilotDecisionSummary: [],
@@ -209,6 +227,7 @@ export function buildPhaseHydrationSections(_phase: AutopilotPhase, hydration: P
   const lines = [
     ...hydration.workspaceSummary,
     ...hydration.planSummary,
+    ...hydration.controlPlaneSummary,
     ...hydration.recallSummary,
     ...hydration.autopilotStatusSummary,
     ...hydration.autopilotDecisionSummary,

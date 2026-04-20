@@ -80,6 +80,12 @@ export interface GovernPolicyPayload {
   policy: Record<string, unknown> | null;
 }
 
+export interface WorkspaceDirtyPathEntry {
+  path: string;
+  index_status: string;
+  worktree_status: string;
+}
+
 export interface WorkspaceScanEntry {
   path: string;
   name: string;
@@ -88,6 +94,8 @@ export interface WorkspaceScanEntry {
   status_summary: string;
   remote: string;
   recent_commits: string[];
+  dirty_paths?: string[];
+  dirty_details?: WorkspaceDirtyPathEntry[];
 }
 
 export interface PlanSyncEntry {
@@ -97,6 +105,66 @@ export interface PlanSyncEntry {
   done: number;
   in_progress: number;
   pending: number;
+}
+
+export interface ActiveControlPlanePackPaths {
+  planPath: string;
+  statusPath: string;
+  worksetPath: string;
+}
+
+export interface PlanControlPlaneReadmeSnapshot {
+  activePack: ActiveControlPlanePackPaths;
+  activeSlice: string;
+  intendedHandoff: string;
+}
+
+export interface WorksetActiveStageSnapshot {
+  stageId: string;
+  owner: string;
+  state: string;
+  priority: string;
+  objectives: string[];
+  requiredDeliverables: string[];
+  avoid: string[];
+}
+
+export interface ActiveControlPlaneSnapshot {
+  readme: PlanControlPlaneReadmeSnapshot;
+  activeStage: WorksetActiveStageSnapshot;
+  stageOrder: string[];
+  sliceDefinitions: Record<string, WorksetActiveStageSnapshot>;
+}
+
+export interface ControlPlaneProgressTransitionInput {
+  completedSlice: string;
+  nextActiveSlice: string | null;
+  intendedHandoff: string;
+  closeoutSummary: string;
+  verificationEvidence: string[];
+}
+
+export interface ControlPlaneProgressTransition {
+  completedSlice: string;
+  nextActiveSlice: string | null;
+  intendedHandoff: string;
+  closeoutSummary: string;
+  verificationEvidence: string[];
+  terminal: boolean;
+}
+
+export interface ControlPlaneWritebackInput {
+  readmeMarkdown: string;
+  statusMarkdown: string;
+  worksetMarkdown: string;
+  transition: ControlPlaneProgressTransition;
+  nextStage: WorksetActiveStageSnapshot | null;
+}
+
+export interface ControlPlaneWritebackPayload {
+  readmeMarkdown: string;
+  statusMarkdown: string;
+  worksetMarkdown: string;
 }
 
 export interface WorkspaceScanInput {
@@ -120,6 +188,13 @@ export interface GovernPort {
 export interface WorkspacePort {
   scan(input: WorkspaceScanInput): Promise<SubstrateResult<WorkspaceScanEntry[]>>;
   planSync(input: PlanSyncInput): Promise<SubstrateResult<PlanSyncEntry[]>>;
+}
+
+export interface ControlPlanePort {
+  snapshot(): Promise<SubstrateResult<ActiveControlPlaneSnapshot | null>>;
+  advance(
+    input: ControlPlaneProgressTransitionInput & { nextStage: WorksetActiveStageSnapshot | null },
+  ): Promise<SubstrateResult<{ nextActiveSlice: string | null; updatedFiles: string[] }>>;
 }
 
 export interface AutopilotStatusHead {
@@ -309,6 +384,7 @@ export interface AutopilotSubstrate {
   readonly memory: MemoryPort;
   readonly govern: GovernPort;
   readonly workspace: WorkspacePort;
+  readonly controlPlane?: ControlPlanePort;
   readonly autopilot: AutopilotPort;
 }
 
@@ -330,6 +406,7 @@ export interface CreateAutopilotSubstrateDependencies {
 export interface PhaseHydrationSnapshot {
   workspaceSummary: string[];
   planSummary: string[];
+  controlPlaneSummary: string[];
   recallSummary: string[];
   autopilotStatusSummary: string[];
   autopilotDecisionSummary: string[];
@@ -345,6 +422,7 @@ export interface PhaseHydrationSnapshot {
 export interface RunWorkspaceSnapshot {
   workspace: WorkspaceScanEntry[];
   plans: PlanSyncEntry[];
+  controlPlane: ActiveControlPlaneSnapshot | null;
   warnings: string[];
 }
 

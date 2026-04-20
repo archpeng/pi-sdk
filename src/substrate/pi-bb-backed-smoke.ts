@@ -21,6 +21,8 @@ export interface PiBbBackedSmokeResult {
   rpcStatus: PiBbBackedSmokeCommandResult;
   sessionFiles: string[];
   sessionEntryTypes: string[];
+  rpcSessionFiles: string[];
+  rpcSessionEntryTypes: string[];
   providerPhases: string[];
   mcpToolCalls: string[];
   mcpResourceReads: string[];
@@ -659,6 +661,8 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
     const sessionFiles = listSessionFiles(sessionDir);
     const sessionEntryTypes = sessionFiles[0] ? readSessionEntryTypes(sessionFiles[0]) : [];
     const rpcStatus = await runPiRpcStatus(projectRoot, env, sessionDir, goal, timeoutMs);
+    const rpcSessionFiles = listSessionFiles(sessionDir);
+    const rpcSessionEntryTypes = rpcSessionFiles[0] ? readSessionEntryTypes(rpcSessionFiles[0]) : [];
 
     return {
       ok:
@@ -674,6 +678,8 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
         providerPhases.every((phase) => phase === "master_plan") &&
         sessionFiles.length === 0 &&
         sessionEntryTypes.length === 0 &&
+        rpcSessionFiles.length >= 1 &&
+        rpcSessionEntryTypes.includes("autopilot-runtime-state") &&
         mcpToolCalls.includes("memory_recall") &&
         mcpToolCalls.includes("memory_autopilot_status") &&
         mcpToolCalls.includes("workspace_scan") &&
@@ -685,6 +691,8 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
       rpcStatus,
       sessionFiles,
       sessionEntryTypes,
+      rpcSessionFiles,
+      rpcSessionEntryTypes,
       providerPhases,
       mcpToolCalls,
       mcpResourceReads,
@@ -706,6 +714,8 @@ export function formatPiBbBackedSmokeResult(result: PiBbBackedSmokeResult): stri
     `- print-run exit=${result.run.exitCode ?? "null"} timedOut=${result.run.timedOut}`,
     `- print-status: ${result.status.output || "<empty>"}`,
     `- rpc-status: ${(result.rpcStatus.output || "<empty>").replace(/\n+/gu, " | ")}`,
+    `- rpc-session-files: ${result.rpcSessionFiles.length}`,
+    `- rpc-session-entry-types: ${result.rpcSessionEntryTypes.join(", ") || "<none>"}`,
     `- provider-phases: ${result.providerPhases.join(", ") || "<none>"}`,
     `- bb-tool-calls: ${result.mcpToolCalls.join(", ") || "<none>"}`,
     `- bb-resource-reads: ${result.mcpResourceReads.join(", ") || "<none>"}`,

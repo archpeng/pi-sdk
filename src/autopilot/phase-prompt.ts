@@ -24,6 +24,11 @@ function protocol(phase: AutopilotPhase): string {
     "- Keep `summary` concrete and short.",
     "- Keep `evidence`, `artifacts`, and `risks` concise arrays of strings.",
     "- Set `nextAction` to what the outer orchestrator should ask you to do next.",
+    "- Do not ask the user whether to continue.",
+    "- Assume the extension scheduler will continue automatically while autopilot mode is running.",
+    "- Only ask the user a question when you are truly blocked on missing external input or a real approval boundary.",
+    "- When multiple viable routes exist, choose the route that gets closest to the overall objective with the least risk of invalidating verified progress.",
+    "- Record that decision in `decisionMode`, `decisionBasis`, and `candidateRoutes` when multiple viable routes exist.",
   ];
 
   switch (phase) {
@@ -34,16 +39,19 @@ function protocol(phase: AutopilotPhase): string {
     case "execute":
       common.push(
         "- Use status `continue` for more work in the same wave, `completed` for wave finished, `needs_replan` for strategy adjustment, `blocked`/`failed` for hard stop, or `done` if the full objective is complete.",
+        "- If execution requires a meaningful route choice, switch to goal-directed reasoning before acting and explain the winning route briefly in the report fields.",
       );
       break;
     case "review":
       common.push(
         "- Use status `completed` when the wave passes review, `continue` when more execution is needed in the same wave, `needs_replan` when the plan itself must change, `done` when the overall objective is complete, or `blocked`/`failed` if you cannot proceed safely.",
+        "- Review must decide which next route best advances the overall objective, not merely whether more work exists.",
       );
       break;
     case "replan":
       common.push(
         "- Use status `continue` when execution should resume with a new plan, `done` if the objective is already complete, or `blocked`/`failed` if the workflow should stop.",
+        "- Replan must compare candidate routes and choose the one that most directly advances the final objective while preserving verified progress.",
       );
       break;
     case "closeout":
@@ -60,11 +68,28 @@ export function buildPhasePrompt(phase: AutopilotPhase, context: AutopilotPrompt
     `Objective: ${context.goal}`,
     `Current wave: ${context.currentWave}/${context.maxWaves}`,
     `Current cycle: ${context.currentCycle}/${context.maxExecutionCyclesPerWave}`,
+    ...(context.activeSlice
+      ? [
+          `Current active slice: ${context.activeSlice.stepId}`,
+          `Current active slice owner/state: ${context.activeSlice.owner} / ${context.activeSlice.state}`,
+          ...(context.activeSlice.objectives[0] ? [`Current active slice objective: ${context.activeSlice.objectives[0]}`] : []),
+          ...(context.activeSlice.requiredDeliverables[0]
+            ? [`Current active slice deliverables: ${context.activeSlice.requiredDeliverables.join(" | ")}`]
+            : []),
+          ...(context.activeSlice.avoid[0]
+            ? [`Current active slice avoid list: ${context.activeSlice.avoid.join(" | ")}`]
+            : []),
+        ]
+      : []),
     "Recent autopilot reports:",
     formatRecentReports(context.recentReports),
     ...(context.substrateContext && context.substrateContext.length > 0 ? ["", ...context.substrateContext] : []),
     "",
     protocol(phase),
+    ...(context.activeSlice ? [`- Set \`stepId\` to \`${context.activeSlice.stepId}\` in \`autopilot_report\`.`] : []),
+    ...(context.activeSlice
+      ? ["- Do not claim slice completion unless the current active slice deliverables are actually satisfied and reflected in evidence/artifacts."]
+      : []),
     "",
   ];
 

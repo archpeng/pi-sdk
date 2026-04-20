@@ -23,6 +23,8 @@ test("runPiBbBackedSmoke proves deterministic BB-backed entry and same-process p
   assert.match(result.rpcStatus.output, /mode: running/);
   assert.match(result.rpcStatus.output, /phase: closeout/);
   assert.match(result.rpcStatus.output, /substrate: bb/);
+  assert.equal(result.rpcSessionFiles.length >= 1, true);
+  assert.equal(result.rpcSessionEntryTypes.includes("autopilot-runtime-state"), true);
   assert.equal(result.mcpToolCalls.includes("memory_recall"), true);
   assert.equal(result.mcpToolCalls.includes("memory_autopilot_status"), true);
   assert.equal(result.mcpToolCalls.includes("workspace_scan"), true);
@@ -39,6 +41,8 @@ test("formatPiBbBackedSmokeResult renders the bounded print-mode and rpc-mode pr
     rpcStatus: { exitCode: 0, signal: null, output: "mode: running\nphase: closeout\nsubstrate: bb", timedOut: false },
     sessionFiles: [],
     sessionEntryTypes: [],
+    rpcSessionFiles: ["/tmp/session.jsonl"],
+    rpcSessionEntryTypes: ["message", "autopilot-runtime-state"],
     providerPhases: ["master_plan", "master_plan"],
     mcpToolCalls: ["memory_recall", "memory_autopilot_status", "workspace_scan", "plan_sync"],
     mcpResourceReads: ["memory://autopilot/decision-authority/current/objective:stub"],
@@ -47,5 +51,7 @@ test("formatPiBbBackedSmokeResult renders the bounded print-mode and rpc-mode pr
   assert.match(lines.join("\n"), /pi-bb-backed-smoke: PASS/);
   assert.match(lines.join("\n"), /print-status: No autopilot state recorded yet\./);
   assert.match(lines.join("\n"), /rpc-status: mode: running/);
+  assert.match(lines.join("\n"), /rpc-session-files: 1/);
+  assert.match(lines.join("\n"), /rpc-session-entry-types: message, autopilot-runtime-state/);
   assert.match(lines.join("\n"), /bb-tool-calls: memory_recall, memory_autopilot_status, workspace_scan, plan_sync/);
 });

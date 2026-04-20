@@ -383,11 +383,17 @@ stateDiagram-v2
 
 ### 8.4 Missing code safety / repo safety automation
 
-当前没有：
+当前已落地的最小保护：
+
+- local-mode initial-run dirty-repo guard
+- control-plane-only dirty allowance（当 dirty path 仅限 repo-local active control plane / best-effort autopilot-owned paths 时允许继续）
+
+一句话：dirty-repo guard 已落地，并且已经缩到 control-plane-aware minimum。 
+
+当前仍然没有：
 
 - git checkpoint per wave
 - rollback point
-- dirty-repo guard
 - branch discipline / closeout discipline
 
 ### 8.5 Missing multi-agent split

@@ -17,6 +17,15 @@ export function buildCloseoutSummaryLines(summary: AutopilotRunSummary): string[
   const latest = latestReport(summary.reports);
   if (latest) {
     lines.push(`latest: ${latest.phase}/${latest.status} :: ${latest.summary}`);
+    if (latest.decisionMode) {
+      lines.push(`decision-mode: ${latest.decisionMode}`);
+    }
+    if (latest.decisionBasis && latest.decisionBasis.length > 0) {
+      lines.push(`decision-basis: ${latest.decisionBasis.join(" | ")}`);
+    }
+    if (latest.candidateRoutes && latest.candidateRoutes.length > 0) {
+      lines.push(`candidate-routes: ${latest.candidateRoutes.join(" | ")}`);
+    }
   }
 
   if (summary.benchmarkProjection) {

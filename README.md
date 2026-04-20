@@ -32,9 +32,13 @@
 Interactive driver 当前已具备：
 
 - 同一 Pi session 内 phase dispatch
+- repo-local active control plane 读取
 - `autopilot_report` 驱动的自动续跑
+- active-slice-aware report validation
+- deterministic `README / STATUS / WORKSET` writeback
 - pause / resume / stop 语义
 - session-branch aware runtime-state reconstruction
+- local mode 下的 control-plane-aware dirty-repo initial-run guard
 - footer/widget 状态展示
 - operator-facing degraded-mode / warning summary
 - BB-backed benchmark / promotion-readiness projection（当 server-owned status 可达时）
@@ -67,8 +71,12 @@ Interactive driver 当前已具备：
 
 - `local` / `bb` substrate mode
 - memory / governance / workspace ports
+- repo-local control-plane read / write seams
 - BB HTTP MCP adapter
 - hydration / raw evidence writeback helpers
+
+当前 local substrate 已不再是纯 no-op。
+一句话：local substrate includes repo-local control-plane read/write and local git workspace scanning。
 
 ## 项目结构
 
@@ -89,7 +97,8 @@ src/
   substrate/
     index.ts             # substrate config + factory
     bb.ts                # BB HTTP MCP adapter
-    local.ts             # local/no-op substrate
+    local.ts             # local substrate: repo-local control plane + git workspace scan
+    control-plane.ts     # repo-local active-pack parser / next-slice resolver / writeback
     hydration.ts         # pre-phase hydration + raw evidence helpers
     governance.ts        # risky tool classification helpers
     http-mcp-client.ts   # streamable HTTP MCP client
@@ -246,9 +255,11 @@ Readiness / packaging mode：
 
 ### `local`
 
-- 不做外部 memory / govern / workspace 调用
-- interactive 与 CLI driver 都可继续最小可运行
-- 所有 substrate port 都是显式 no-op
+- 不做外部 `BB` memory / govern / autopilot truth 调用
+- 会读取 repo-local `docs/plan` control plane
+- 会在 local mode 下执行 deterministic `README / STATUS / WORKSET` writeback
+- 会做本地 git workspace scan，用于 control-plane-aware dirty-repo guard（允许 control-plane-only dirty，阻断 foreign dirty）
+- interactive 与 CLI/headless 都可继续最小可运行
 
 ### `bb`
 

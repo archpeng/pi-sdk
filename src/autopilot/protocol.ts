@@ -42,6 +42,7 @@ export const DEFAULT_AUTOPILOT_THINKING_LEVEL: SupportedThinkingLevel = "high";
 export type AutopilotPhase = (typeof AUTOPILOT_PHASES)[number];
 export type AutopilotStatus = (typeof AUTOPILOT_STATUSES)[number];
 export type SupportedThinkingLevel = (typeof THINKING_LEVELS)[number];
+export type AutopilotDecisionMode = "standard" | "goal_directed";
 
 export interface AutopilotReport {
   phase: AutopilotPhase;
@@ -50,6 +51,9 @@ export interface AutopilotReport {
   waveId?: string | undefined;
   stepId?: string | undefined;
   nextAction?: string | undefined;
+  decisionMode?: AutopilotDecisionMode | undefined;
+  decisionBasis?: string[] | undefined;
+  candidateRoutes?: string[] | undefined;
   evidence: string[];
   artifacts: string[];
   risks: string[];
@@ -115,7 +119,17 @@ export interface AutopilotPromptContext {
   currentCycle: number;
   maxExecutionCyclesPerWave: number;
   recentReports: AutopilotReport[];
+  activeSlice?: AutopilotActiveSlice | undefined;
   substrateContext?: string[] | undefined;
+}
+
+export interface AutopilotActiveSlice {
+  stepId: string;
+  owner: string;
+  state: string;
+  objectives: string[];
+  requiredDeliverables: string[];
+  avoid: string[];
 }
 
 export interface AutopilotRunOptions {
@@ -178,6 +192,9 @@ export function isAutopilotReport(value: unknown): value is AutopilotReport {
     isAutopilotPhase(candidate.phase) &&
     isAutopilotStatus(candidate.status) &&
     typeof candidate.summary === "string" &&
+    (candidate.decisionMode === undefined || candidate.decisionMode === "standard" || candidate.decisionMode === "goal_directed") &&
+    (candidate.decisionBasis === undefined || Array.isArray(candidate.decisionBasis)) &&
+    (candidate.candidateRoutes === undefined || Array.isArray(candidate.candidateRoutes)) &&
     Array.isArray(candidate.evidence) &&
     Array.isArray(candidate.artifacts) &&
     Array.isArray(candidate.risks) &&

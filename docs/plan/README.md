@@ -2,9 +2,9 @@
 
 ## Active Pack
 
-- `docs/plan/pi-sdk-final-residual-clean-startup-route-bb-backed-capability-proof-2026-04-17_PLAN.md`
-- `docs/plan/pi-sdk-final-residual-clean-startup-route-bb-backed-capability-proof-2026-04-17_STATUS.md`
-- `docs/plan/pi-sdk-final-residual-clean-startup-route-bb-backed-capability-proof-2026-04-17_WORKSET.md`
+- `docs/plan/pi-sdk-local-dirty-policy-control-plane-aware-2026-04-20_PLAN.md`
+- `docs/plan/pi-sdk-local-dirty-policy-control-plane-aware-2026-04-20_STATUS.md`
+- `docs/plan/pi-sdk-local-dirty-policy-control-plane-aware-2026-04-20_WORKSET.md`
 
 ## Current Active Slice
 
@@ -12,15 +12,16 @@
 
 ## Intended Handoff
 
-- `no successor pack required for this workstream`
+- `no immediate successor pack required for this workstream`
 
 ## Previous Pack
 
-- `docs/plan/pi-sdk-final-pi-startup-autoload-proof-and-project-completion-2026-04-17_PLAN.md`
-- `docs/plan/pi-sdk-final-pi-startup-autoload-proof-and-project-completion-2026-04-17_STATUS.md`
-- `docs/plan/pi-sdk-final-pi-startup-autoload-proof-and-project-completion-2026-04-17_WORKSET.md`
+- `docs/plan/pi-sdk-structure-clarity-and-core-task-alignment-cleanup-2026-04-19_PLAN.md`
+- `docs/plan/pi-sdk-structure-clarity-and-core-task-alignment-cleanup-2026-04-19_STATUS.md`
+- `docs/plan/pi-sdk-structure-clarity-and-core-task-alignment-cleanup-2026-04-19_WORKSET.md`
 
 ## Notes
 
-This `docs/plan/` directory is the repo-level control plane for resumable work.
-All roadmap packs plus the prior final-completion pack are closed out. This residual pack is now also closed out honestly. It closed the last remaining proof gap by landing a scriptable BB-backed smoke route that uses print-mode for the first autoload/entry signal and a bounded same-process RPC route for truthful progression/status proof. Under the strict final-goal law, the overall project can now be honestly claimed complete; no successor pack is required for this workstream.
+This `docs/plan/` directory remains the repo-level control plane for resumable work.
+
+The cleanup successor pack is still closed out. The current dirty-policy successor pack is now closed out as well: it upgraded local workspace scan from dirty-count-only to path-level truth, refined the initial local dirty-repo guard into a control-plane-aware policy, and added a narrow best-effort owned-path journal without claiming generic mutation provenance.

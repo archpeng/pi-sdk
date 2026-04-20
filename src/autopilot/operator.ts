@@ -5,6 +5,19 @@ function latestReport(reports: AutopilotReport[]): AutopilotReport | undefined {
   return reports.at(-1);
 }
 
+function buildLatestDecisionLines(report: AutopilotReport | undefined): string[] {
+  if (!report || report.decisionMode === undefined) return [];
+
+  const lines = [`decision-mode: ${report.decisionMode}`];
+  if (report.decisionBasis && report.decisionBasis.length > 0) {
+    lines.push(`decision-basis: ${report.decisionBasis.join(" | ")}`);
+  }
+  if (report.candidateRoutes && report.candidateRoutes.length > 0) {
+    lines.push(`candidate-routes: ${report.candidateRoutes.join(" | ")}`);
+  }
+  return lines;
+}
+
 function buildProjectionLines(runtime: AutopilotRuntimeState): string[] {
   const lines: string[] = [];
   if (runtime.objectiveKey) {
@@ -55,6 +68,7 @@ export function buildAutopilotStatusLines(
   }
 
   if (latest) {
+    lines.push(...buildLatestDecisionLines(latest));
     if (lines.length > 0) lines.push("");
     lines.push(formatAutopilotReport(latest));
   }
@@ -79,6 +93,7 @@ export function buildAutopilotWidgetLines(
   if (runtime.decisionProjection) lines.push(`decision: ${runtime.decisionProjection.summaryLine}`);
   if (runtime.historyProjection) lines.push(`history: ${runtime.historyProjection.summaryLine}`);
   if (runtime.artifactSummaryProjection) lines.push(`artifact-summary: ${runtime.artifactSummaryProjection.summaryLine}`);
+  lines.push(...buildLatestDecisionLines(latest));
   if (latest) lines.push(`last: ${latest.summary}`);
   if (latest?.nextAction) lines.push(`next: ${latest.nextAction}`);
   const warningSummary = summarizeWarnings(runtime.warnings);
@@ -127,6 +142,7 @@ export function buildAutopilotOverlayLines(
     if (lines.at(-1) !== "") lines.push("");
     lines.push(`last: ${latest.phase}/${latest.status}`);
     lines.push(`summary: ${latest.summary}`);
+    lines.push(...buildLatestDecisionLines(latest));
     if (latest.nextAction) lines.push(`next: ${latest.nextAction}`);
   }
 

@@ -1,4 +1,5 @@
 import {
+  type AutopilotActiveSlice,
   isAutopilotArtifactSummaryProjection,
   isAutopilotBenchmarkProjection,
   isAutopilotDecisionProjection,
@@ -32,12 +33,14 @@ export interface AutopilotRuntimeState {
   maxExecutionCyclesPerWave: number;
   dispatchState: AutopilotDispatchState;
   warnings: string[];
+  activeSlice?: AutopilotActiveSlice | undefined;
   substrateMode?: "local" | "bb" | undefined;
   objectiveKey?: string | undefined;
   benchmarkProjection?: AutopilotBenchmarkProjection | undefined;
   decisionProjection?: AutopilotDecisionProjection | undefined;
   historyProjection?: AutopilotHistoryProjection | undefined;
   artifactSummaryProjection?: AutopilotArtifactSummaryProjection | undefined;
+  autopilotOwnedPaths?: string[] | undefined;
   updatedAtMs: number;
   lastReportTimestampMs?: number | undefined;
   lastReportSummary?: string | undefined;
@@ -91,12 +94,22 @@ export function isAutopilotRuntimeState(value: unknown): value is AutopilotRunti
     typeof candidate.maxExecutionCyclesPerWave === "number" &&
     isDispatchState(candidate.dispatchState) &&
     Array.isArray(candidate.warnings) &&
+    (candidate.activeSlice === undefined ||
+      (typeof candidate.activeSlice.stepId === "string" &&
+        typeof candidate.activeSlice.owner === "string" &&
+        typeof candidate.activeSlice.state === "string" &&
+        Array.isArray(candidate.activeSlice.objectives) &&
+        Array.isArray(candidate.activeSlice.requiredDeliverables) &&
+        Array.isArray(candidate.activeSlice.avoid))) &&
     (candidate.substrateMode === undefined || candidate.substrateMode === "local" || candidate.substrateMode === "bb") &&
     (candidate.objectiveKey === undefined || typeof candidate.objectiveKey === "string") &&
     (candidate.benchmarkProjection === undefined || isAutopilotBenchmarkProjection(candidate.benchmarkProjection)) &&
     (candidate.decisionProjection === undefined || isAutopilotDecisionProjection(candidate.decisionProjection)) &&
     (candidate.historyProjection === undefined || isAutopilotHistoryProjection(candidate.historyProjection)) &&
     (candidate.artifactSummaryProjection === undefined || isAutopilotArtifactSummaryProjection(candidate.artifactSummaryProjection)) &&
+    (candidate.autopilotOwnedPaths === undefined ||
+      (Array.isArray(candidate.autopilotOwnedPaths) &&
+        candidate.autopilotOwnedPaths.every((ownedPath) => typeof ownedPath === "string"))) &&
     typeof candidate.updatedAtMs === "number" &&
     (candidate.replanReason === undefined || isReplanReason(candidate.replanReason))
   );
@@ -118,7 +131,34 @@ export function beginInteractiveRuntime(input: {
     maxExecutionCyclesPerWave: input.maxExecutionCyclesPerWave,
     dispatchState: "ready",
     warnings: [],
+    autopilotOwnedPaths: [],
     ...(input.objectiveKey ? { objectiveKey: input.objectiveKey } : {}),
+    updatedAtMs: Date.now(),
+  };
+}
+
+function normalizeOwnedPath(pathname: string): string {
+  return pathname.trim().replace(/^\.\//, "").replace(/\\/g, "/");
+}
+
+export function registerAutopilotOwnedPaths(
+  runtime: AutopilotRuntimeState,
+  paths: string[],
+): AutopilotRuntimeState {
+  const nextOwnedPaths = new Set(
+    (runtime.autopilotOwnedPaths ?? [])
+      .map(normalizeOwnedPath)
+      .filter((pathname) => pathname.length > 0),
+  );
+
+  for (const pathname of paths.map(normalizeOwnedPath)) {
+    if (!pathname) continue;
+    nextOwnedPaths.add(pathname);
+  }
+
+  return {
+    ...runtime,
+    autopilotOwnedPaths: [...nextOwnedPaths].sort(),
     updatedAtMs: Date.now(),
   };
 }
@@ -157,6 +197,18 @@ function closeRuntime(runtime: AutopilotRuntimeState, report: AutopilotReport): 
     updatedAtMs: report.timestampMs,
     lastReportTimestampMs: report.timestampMs,
     lastReportSummary: report.summary,
+  };
+}
+
+export function haltInteractiveRuntime(runtime: AutopilotRuntimeState, reason: string): AutopilotRuntimeState {
+  const warning = reason.trim();
+  return {
+    ...runtime,
+    mode: "closed",
+    dispatchState: "closed",
+    warnings: warning ? [...runtime.warnings, warning] : runtime.warnings,
+    updatedAtMs: Date.now(),
+    lastReportSummary: warning || runtime.lastReportSummary,
   };
 }
 
