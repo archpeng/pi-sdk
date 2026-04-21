@@ -10,7 +10,14 @@ import {
   extractAutopilotOwnedPathsFromToolCall,
   missingLocalControlPlaneReason,
 } from "./runtime-guardrails.js";
-import { buildAutopilotOverlayLines, buildAutopilotStatusLines, buildAutopilotWidgetLines } from "../autopilot/operator.js";
+import { clearAutopilotUi, updateAutopilotUi } from "./runtime-ui.js";
+import { buildSessionShutdownMessage } from "./session-transition.js";
+import {
+  buildMissingToolsReason,
+  getMissingRequiredTools,
+  preflightAutopilotCommand,
+} from "./tool-guard.js";
+import { buildAutopilotOverlayLines, buildAutopilotStatusLines } from "../autopilot/operator.js";
 import { buildPhasePrompt } from "../autopilot/phase-prompt.js";
 import {
   AUTOPILOT_PHASES,
@@ -74,45 +81,6 @@ function persistRuntime(pi: ExtensionAPI, runtime: AutopilotRuntimeState | null)
 
 function truncateWarnings(warnings: string[]): string[] {
   return warnings.slice(-5);
-}
-
-function latestReport(reports: AutopilotReport[]): AutopilotReport | undefined {
-  return reports.at(-1);
-}
-
-function updateUi(ctx: ExtensionContext, runtime: AutopilotRuntimeState | null, reports: AutopilotReport[]): void {
-  if (!ctx.hasUI) return;
-
-  const latest = latestReport(reports);
-  if (!runtime && !latest) {
-    ctx.ui.setStatus("autopilot", undefined);
-    ctx.ui.setWidget("autopilot", undefined);
-    return;
-  }
-
-  if (runtime) {
-    const tone = runtime.warnings.length > 0 ? "warning" : runtime.mode === "closed" ? "success" : runtime.mode === "stopping" ? "warning" : "accent";
-    ctx.ui.setStatus(
-      "autopilot",
-      ctx.ui.theme.fg(
-        tone,
-        `🤖 ${runtime.mode} · ${runtime.phase} · ${runtime.substrateMode ?? "unknown"} · w${runtime.currentWave}/c${runtime.currentCycle}`,
-      ),
-    );
-
-    const lines = buildAutopilotWidgetLines(runtime, reports);
-    lines[0] = `${ctx.ui.theme.fg("accent", "Autopilot")} ${runtime.goal}`;
-    ctx.ui.setWidget("autopilot", lines);
-    return;
-  }
-
-  ctx.ui.setStatus("autopilot", ctx.ui.theme.fg("accent", `🤖 ${latest?.phase ?? "autopilot"} · ${latest?.status ?? "-"}`));
-  if (latest) {
-    ctx.ui.setWidget("autopilot", [
-      `${ctx.ui.theme.fg("accent", "Autopilot")} ${latest.phase} / ${latest.status}`,
-      `summary: ${latest.summary}`,
-    ]);
-  }
 }
 
 function ensureSubstrate(cwd: string): AutopilotSubstrate {
@@ -186,7 +154,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     } else {
       setRuntimeSubstrate(undefined);
     }
-    updateUi(ctx, runtime, reports);
+    updateAutopilotUi(ctx, runtime, reports);
   };
 
   const redispatchIfRunnable = async (ctx: ExtensionContext) => {
@@ -202,7 +170,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       const reason = missingLocalControlPlaneReason(ctx.cwd);
       runtime = haltInteractiveRuntime(runtime, reason);
       persistRuntime(pi, runtime);
-      updateUi(ctx, runtime, reports);
+      updateAutopilotUi(ctx, runtime, reports);
       notify(ctx, reason, "warning");
       return;
     }
@@ -219,7 +187,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
         const reason = decision.reason ?? "dirty repo guard blocked the initial local run";
         runtime = haltInteractiveRuntime(runtime, reason);
         persistRuntime(pi, runtime);
-        updateUi(ctx, runtime, reports);
+        updateAutopilotUi(ctx, runtime, reports);
         notify(ctx, reason, "warning");
         return;
       }
@@ -247,7 +215,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       updatedAtMs: Date.now(),
     };
     persistRuntime(pi, runtime);
-    updateUi(ctx, runtime, reports);
+    updateAutopilotUi(ctx, runtime, reports);
 
     if (ctx.isIdle() && !ctx.hasPendingMessages()) {
       pi.sendUserMessage(built.prompt);
@@ -263,17 +231,39 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     rebuild(ctx);
     await redispatchIfRunnable(ctx);
   });
-  pi.on("session_shutdown", async (_event, ctx) => {
+  pi.on("session_shutdown", async (event, ctx) => {
+    const shutdownMessage = buildSessionShutdownMessage(event.reason, event.targetSessionFile, runtime);
+    reports = [];
+    runtime = null;
+    pendingDispatch = false;
     compactionInFlight = false;
     setRuntimeSubstrate(undefined);
-    if (ctx.hasUI) {
-      ctx.ui.setStatus("autopilot", undefined);
-      ctx.ui.setWidget("autopilot", undefined);
+    clearAutopilotUi(ctx);
+    if (ctx.hasUI && shutdownMessage) {
+      ctx.ui.notify(shutdownMessage, "info");
     }
   });
 
-  pi.on("before_agent_start", async (event, _ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (!runtime || runtime.mode !== "running") return undefined;
+
+    const missingTools = getMissingRequiredTools(event.systemPromptOptions?.selectedTools);
+    if (missingTools.length > 0) {
+      const reason = buildMissingToolsReason(missingTools, event.systemPromptOptions?.selectedTools);
+      runtime = haltInteractiveRuntime(runtime, reason);
+      pendingDispatch = false;
+      persistRuntime(pi, runtime);
+      updateAutopilotUi(ctx, runtime, reports);
+      notify(ctx, reason, "warning");
+      return {
+        message: {
+          customType: "autopilot-missing-tools",
+          content: reason,
+          display: true,
+        },
+        systemPrompt: `${event.systemPrompt}\n\nAutopilot cannot continue because required tools are missing from the active tool allowlist. Do not execute the requested autopilot plan. Briefly tell the operator which required tool is missing and how to re-enable it.`,
+      };
+    }
 
     const contract = buildContinuationContract(runtime);
     return {
@@ -340,7 +330,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       }
     }
 
-    updateUi(ctx, runtime, reports);
+    updateAutopilotUi(ctx, runtime, reports);
   });
 
   pi.on("turn_end", async (_event, ctx) => {
@@ -348,7 +338,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     pendingDispatch = false;
 
     if (!runtime || runtime.mode !== "running" || runtime.dispatchState !== "ready") {
-      updateUi(ctx, runtime, reports);
+      updateAutopilotUi(ctx, runtime, reports);
       return;
     }
 
@@ -437,8 +427,9 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     },
     ensureSubstrate,
     persistRuntime,
-    updateUi: (ctx, nextRuntime) => updateUi(ctx, nextRuntime, reports),
+    updateUi: (ctx, nextRuntime) => updateAutopilotUi(ctx, nextRuntime, reports),
     notify,
+    preflightAutopilotCommand,
     dispatchCurrentPhase,
     showStatusOverlay: (ctx, nextRuntime) => showStatusOverlay(ctx, nextRuntime, reports),
     statusLines: (nextRuntime) => buildAutopilotStatusLines(nextRuntime, reports),

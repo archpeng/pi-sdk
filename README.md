@@ -35,11 +35,13 @@ Interactive driver 当前已具备：
 - repo-local active control plane 读取
 - `autopilot_report` 驱动的自动续跑
 - active-slice-aware report validation
+- Pi 0.68 tool allowlist fail-fast（尤其是 `autopilot_report` 缺失时的 command-side + before-agent-start guard）
 - deterministic `README / STATUS / WORKSET` writeback
 - pause / resume / stop 语义
 - session-branch aware runtime-state reconstruction
+- reason-aware session replacement / fork handoff cleanup (`session_shutdown.reason` / `targetSessionFile`)
 - local mode 下的 control-plane-aware dirty-repo initial-run guard
-- footer/widget 状态展示
+- phase-aware working indicator + footer/widget 状态展示
 - operator-facing degraded-mode / warning summary
 - BB-backed benchmark / promotion-readiness projection（当 server-owned status 可达时）
 - BB-backed decision-authority / dry-run reconcile projection（当 server-owned authority surfaces 可达时）
@@ -89,7 +91,13 @@ src/
     state.ts             # interactive runtime state + reconstruction
     closeout.ts          # shared closeout summary formatting
   extension/
-    index.ts             # Pi interactive driver
+    index.ts             # Pi interactive driver assembly
+    command-handlers.ts  # slash-command entrypoints
+    runtime-dispatch.ts  # phase prompt + accepted-slice writeback glue
+    runtime-guardrails.ts # dirty-repo / continuation guardrails
+    tool-guard.ts        # tool-allowlist preflight + missing-tool diagnostics
+    runtime-ui.ts        # status/widget/working-indicator rendering
+    session-transition.ts # session replacement / handoff messaging
   sdk/
     orchestrator.ts      # CLI/headless driver
   shared/

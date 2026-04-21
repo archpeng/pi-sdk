@@ -2,9 +2,9 @@
 
 ## Active Pack
 
-- `docs/plan/pi-sdk-local-dirty-policy-control-plane-aware-2026-04-20_PLAN.md`
-- `docs/plan/pi-sdk-local-dirty-policy-control-plane-aware-2026-04-20_STATUS.md`
-- `docs/plan/pi-sdk-local-dirty-policy-control-plane-aware-2026-04-20_WORKSET.md`
+- `docs/plan/pi-sdk-extension-driver-thinning-follow-up-2026-04-21_PLAN.md`
+- `docs/plan/pi-sdk-extension-driver-thinning-follow-up-2026-04-21_STATUS.md`
+- `docs/plan/pi-sdk-extension-driver-thinning-follow-up-2026-04-21_WORKSET.md`
 
 ## Current Active Slice
 
@@ -16,12 +16,12 @@
 
 ## Previous Pack
 
-- `docs/plan/pi-sdk-structure-clarity-and-core-task-alignment-cleanup-2026-04-19_PLAN.md`
-- `docs/plan/pi-sdk-structure-clarity-and-core-task-alignment-cleanup-2026-04-19_STATUS.md`
-- `docs/plan/pi-sdk-structure-clarity-and-core-task-alignment-cleanup-2026-04-19_WORKSET.md`
+- `docs/plan/pi-sdk-autopilot-0-68-allowlist-indicator-and-session-transition-hardening-2026-04-21_PLAN.md`
+- `docs/plan/pi-sdk-autopilot-0-68-allowlist-indicator-and-session-transition-hardening-2026-04-21_STATUS.md`
+- `docs/plan/pi-sdk-autopilot-0-68-allowlist-indicator-and-session-transition-hardening-2026-04-21_WORKSET.md`
 
 ## Notes
 
 This `docs/plan/` directory remains the repo-level control plane for resumable work.
 
-The cleanup successor pack is still closed out. The current dirty-policy successor pack is now closed out as well: it upgraded local workspace scan from dirty-count-only to path-level truth, refined the initial local dirty-repo guard into a control-plane-aware policy, and added a narrow best-effort owned-path journal without claiming generic mutation provenance.
+The prior Pi 0.68 hardening pack is closed out. The current review-follow-up pack is also closed out: it turned the index-thinning residual into a structure-only refactor by extracting dedicated tool-guard, runtime-ui, and session-transition helper seams while preserving the same interactive autopilot behavior.

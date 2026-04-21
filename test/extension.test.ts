@@ -44,6 +44,9 @@ function createFakePi() {
 
 function createFakeContext(overrides: Partial<any> = {}) {
   const notifications: Array<{ message: string; kind: string }> = [];
+  const statusUpdates: unknown[] = [];
+  const widgetUpdates: unknown[] = [];
+  const workingIndicators: Array<unknown> = [];
   return {
     cwd: "/repo",
     hasUI: true,
@@ -51,8 +54,15 @@ function createFakeContext(overrides: Partial<any> = {}) {
       notify(message: string, kind = "info") {
         notifications.push({ message, kind });
       },
-      setStatus() {},
-      setWidget() {},
+      setStatus(...args: unknown[]) {
+        statusUpdates.push(args);
+      },
+      setWidget(...args: unknown[]) {
+        widgetUpdates.push(args);
+      },
+      setWorkingIndicator(options?: unknown) {
+        workingIndicators.push(options);
+      },
       theme: {
         fg: (_token: string, text: string) => text,
       },
@@ -61,6 +71,9 @@ function createFakeContext(overrides: Partial<any> = {}) {
       getBranch() {
         return [];
       },
+    },
+    getSystemPrompt() {
+      return "Active tools: read bash edit write autopilot_report";
     },
     isIdle() {
       return true;
@@ -71,6 +84,9 @@ function createFakeContext(overrides: Partial<any> = {}) {
     abort() {},
     signal: undefined,
     notifications,
+    statusUpdates,
+    widgetUpdates,
+    workingIndicators,
     ...overrides,
   };
 }
@@ -545,6 +561,53 @@ test("/autopilot-run queues the first phase prompt in the current session", asyn
   }
 });
 
+test("/autopilot-run fails fast when the current tool allowlist omits autopilot_report", async () => {
+  const { pi, commands, sentUserMessages } = createFakePi();
+  const ctx = createFakeContext({
+    getSystemPrompt() {
+      return "Active tools: read bash edit write";
+    },
+  });
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+
+    assert.equal(sentUserMessages.length, 0);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /autopilot_report/);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /--no-tools|--tools/);
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("/autopilot-resume fails fast when the current tool allowlist omits autopilot_report", async () => {
+  const { pi, commands, sentUserMessages, appendedEntries } = createFakePi();
+  const ctx = createFakeContext({
+    getSystemPrompt() {
+      return "Active tools: read bash edit write";
+    },
+  });
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", createFakeContext());
+    assert.equal(sentUserMessages.length, 1);
+
+    await commands.get("autopilot-pause")?.handler("", ctx);
+    await commands.get("autopilot-resume")?.handler("", ctx);
+
+    assert.equal(sentUserMessages.length, 1);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /autopilot_report/);
+    const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
+    assert.notEqual(latestRuntime?.mode, "running");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
 test("/autopilot-run in local mode halts when no repo-local active control plane is available", async () => {
   const { pi, commands, sentUserMessages, appendedEntries } = createFakePi();
   const ctx = createFakeContext();
@@ -938,6 +1001,94 @@ test("before_agent_start injects a continuation contract while autopilot is runn
     assert.match(merged.systemPrompt ?? "", /Do not ask the user whether to continue\./);
     assert.match(merged.systemPrompt ?? "", /Assume pre-authorization to continue while autopilot mode remains running\./);
     assert.match(merged.message?.content ?? "", /autopilot continuation contract active/i);
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("before_agent_start halts autopilot when selectedTools omit autopilot_report", async () => {
+  const { pi, handlers, commands, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+
+    const results = [];
+    for (const handler of handlers.get("before_agent_start") ?? []) {
+      results.push(
+        await handler(
+          {
+            prompt: "continue",
+            images: [],
+            systemPrompt: "Base system prompt",
+            systemPromptOptions: {
+              selectedTools: ["read", "bash", "edit", "write"],
+            },
+          },
+          ctx,
+        ),
+      );
+    }
+
+    const merged = results.find((value) => value && typeof value === "object") as { systemPrompt?: string; message?: { content?: string } } | undefined;
+    assert.ok(merged);
+    assert.match(merged.message?.content ?? "", /autopilot_report/);
+    assert.match(merged.systemPrompt ?? "", /required tools are missing/i);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /autopilot_report/);
+    const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
+    assert.equal(latestRuntime?.mode, "closed");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("autopilot updates the working indicator to reflect runtime phase and mode", async () => {
+  const { pi, commands } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+    const runningIndicator = ctx.workingIndicators.at(-1) as { frames?: string[] } | undefined;
+    assert.ok(runningIndicator?.frames?.some((frame) => /MP/.test(frame)));
+
+    await commands.get("autopilot-pause")?.handler("", ctx);
+    const pausedIndicator = ctx.workingIndicators.at(-1) as { frames?: string[] } | undefined;
+    assert.deepEqual(pausedIndicator?.frames, ["MP‖"]);
+
+    await commands.get("autopilot-stop")?.handler("", ctx);
+    const stoppingIndicator = ctx.workingIndicators.at(-1) as { frames?: string[] } | undefined;
+    assert.deepEqual(stoppingIndicator?.frames, ["MP■"]);
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("session_shutdown uses Pi 0.68 replacement metadata for clearer autopilot handoff cleanup", async () => {
+  const { pi, handlers, commands } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+
+    await runHandlers(
+      handlers,
+      "session_shutdown",
+      {
+        reason: "fork",
+        targetSessionFile: "/tmp/forked-session.jsonl",
+      },
+      ctx,
+    );
+
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /forked-session\.jsonl/);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /branch handoff/i);
+    assert.equal(ctx.workingIndicators.at(-1), undefined);
   } finally {
     setRuntimeSubstrate(undefined);
   }

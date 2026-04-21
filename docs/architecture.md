@@ -81,7 +81,7 @@ flowchart TD
 | Module | Key Files | Responsibility | Owns | Does Not Own |
 |---|---|---|---|---|
 | Package surface | `package.json`, `src/index.ts` | 暴露 Pi package + CLI/headless entrypoint | npm package identity, bin, extension registration | workflow truth / eval substrate |
-| Pi interactive driver | `src/extension/index.ts` | 在当前 Pi session 内驱动 autopilot phase continuation | commands, same-session scheduling, runtime persistence, status/widget UI, governance preflight | second hidden session / headless orchestration |
+| Pi interactive driver | `src/extension/index.ts`, `src/extension/*.ts` | 在当前 Pi session 内驱动 autopilot phase continuation | commands, same-session scheduling, runtime persistence, status/widget UI, governance preflight, session handoff glue | second hidden session / headless orchestration |
 | CLI / headless driver | `src/sdk/orchestrator.ts` | bounded batch wrapper over shared core | argv parsing, session bootstrap, stdout/stderr summary | interactive scheduling semantics |
 | Shared autopilot core | `src/autopilot/*.ts` | 共享协议、prompt builder、workflow engine、runtime state、closeout helper | reusable business logic for both drivers | Pi runtime API plumbing / BB adapter details |
 | Shared compatibility layer | `src/shared/*.ts` | 旧路径兼容 re-export | import stability during refactor | new business logic ownership |

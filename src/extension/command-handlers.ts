@@ -25,6 +25,7 @@ interface CommandHandlerDependencies extends CommandHandlerRuntimeAccess {
   persistRuntime(pi: ExtensionAPI, runtime: AutopilotRuntimeState | null): void;
   updateUi(ctx: ExtensionContext, runtime: AutopilotRuntimeState | null): void;
   notify(ctx: ExtensionContext, message: string, kind?: "info" | "warning" | "error"): void;
+  preflightAutopilotCommand(ctx: ExtensionCommandContext): { ok: true } | { ok: false; reason: string };
   dispatchCurrentPhase(ctx: ExtensionContext): Promise<void>;
   showStatusOverlay(
     ctx: ExtensionCommandContext,
@@ -45,6 +46,12 @@ export function registerAutopilotCommands(deps: CommandHandlerDependencies): voi
       const current = deps.getRuntime();
       if (current && current.mode === "running" && current.dispatchState === "awaiting_report") {
         deps.notify(ctx, "Autopilot is already running in this session.", "warning");
+        return;
+      }
+
+      const preflight = deps.preflightAutopilotCommand(ctx);
+      if (!preflight.ok) {
+        deps.notify(ctx, preflight.reason, "warning");
         return;
       }
 
@@ -92,6 +99,12 @@ export function registerAutopilotCommands(deps: CommandHandlerDependencies): voi
         });
       } else if (runtime.mode === "closed") {
         deps.notify(ctx, "Autopilot is already closed. Start a new run with /autopilot-run <goal>.", "warning");
+        return;
+      }
+
+      const preflight = deps.preflightAutopilotCommand(ctx);
+      if (!preflight.ok) {
+        deps.notify(ctx, preflight.reason, "warning");
         return;
       }
 

@@ -103,17 +103,19 @@ test("parseWorksetActiveStage extracts the current active stage contract", () =>
   ]);
 });
 
-test("current active plan pack matches the frozen machine-readable contract", () => {
+test("current active plan pack matches the repo's machine-readable control-plane contract", () => {
   const readme = readFileSync(path.join(REPO_ROOT, "docs/plan/README.md"), "utf8");
   const controlPlane = parsePlanControlPlaneReadme(readme);
   const workset = readFileSync(path.join(REPO_ROOT, controlPlane.activePack.worksetPath), "utf8");
   const activeStage = parseWorksetActiveStage(workset);
 
-  assert.equal(controlPlane.activeSlice, "PACK_COMPLETE");
-  assert.equal(controlPlane.intendedHandoff, "no immediate successor pack required for this workstream");
-  assert.equal(activeStage.stageId, "PACK_COMPLETE");
-  assert.equal(activeStage.owner, "closeout");
-  assert.equal(activeStage.state, "DONE");
+  assert.equal(controlPlane.activeSlice, activeStage.stageId);
+  assert.match(controlPlane.activePack.planPath, /^docs\/plan\/.*_PLAN\.md$/);
+  assert.match(controlPlane.activePack.statusPath, /^docs\/plan\/.*_STATUS\.md$/);
+  assert.match(controlPlane.activePack.worksetPath, /^docs\/plan\/.*_WORKSET\.md$/);
+  assert.notEqual(controlPlane.intendedHandoff.trim(), "");
+  assert.notEqual(activeStage.owner.trim(), "");
+  assert.notEqual(activeStage.state.trim(), "");
 });
 
 test("buildControlPlaneProgressTransition freezes the deterministic status/workset progression contract", () => {
