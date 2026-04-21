@@ -1,7 +1,7 @@
 {
   "name": "pi-sdk",
   "version": "0.1.0",
-  "description": "Pi-native interactive autopilot package with a shared headless driver", 
+  "description": "Pi-native interactive autopilot package with a shared headless driver",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -47,8 +47,8 @@
     ]
   },
   "dependencies": {
-    "@mariozechner/pi-ai": "^0.67.3",
-    "@mariozechner/pi-coding-agent": "^0.67.3",
+    "@mariozechner/pi-ai": "^0.68.0",
+    "@mariozechner/pi-coding-agent": "^0.68.0",
     "@sinclair/typebox": "^0.34.41"
   },
   "devDependencies": {
