@@ -27,7 +27,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --ignore-scripts --no-audit --no-fund
 
       # release:check already reruns test/typecheck/build, but we keep
       # the explicit steps for faster failure visibility in PRs.
