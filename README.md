@@ -1,6 +1,8 @@
-# pi-sdk
+# AutoPi
 
-`pi-sdk` 现在定位为一个 **Pi-native interactive autopilot package with a shared headless driver**。
+`AutoPi` 现在定位为一个 **Pi-native interactive autopilot package with a shared headless driver**。
+
+> 当前产品名为 `AutoPi`；npm package 名为 `autopi`。repo 路径、部分文档文件名、以及历史 control-plane 归档仍暂时保留 legacy `pi-sdk` 命名。
 
 固定产品表达：
 
@@ -9,7 +11,7 @@
 - **truth / eval / learning** = 继续由 `BB` substrate 负责
 - **Pi core** = 不做 patch
 
-这意味着 `pi-sdk` 不再把“CLI orchestrator + optional extension”当作长期目标，而是把：
+这意味着 `AutoPi` 不再把“CLI orchestrator + optional extension”当作长期目标，而是把：
 
 > **shared autopilot core + Pi interactive driver + CLI/headless driver**
 
@@ -303,7 +305,7 @@ Readiness / packaging mode：
 - `artifacts[]`
 - `risks[]`
 
-这仍然是 `pi-sdk` 的核心 machine-consumable contract；`status` 只是其中一部分，真正的 execute/review progression 还依赖 stop-law fields。
+这仍然是 `AutoPi` 的核心 machine-consumable contract；`status` 只是其中一部分，真正的 execute/review progression 还依赖 stop-law fields。
 
 ## Substrate 行为边界
 
@@ -329,10 +331,10 @@ Readiness / packaging mode：
 
 当前固定约束：
 
-- `pi-sdk` 继续做 workflow shell
+- `AutoPi` 继续做 workflow shell
 - benchmark / promotion / canonical truth / eval / learning 继续在 `BB`
 - repo-local objective key 只用于查询 server-owned status / authority truth，不代表本地拥有 benchmark or decision truth
-- 若 live BB endpoint 落后于源码，必须显式降级，而不是在 `pi-sdk` 本地偷偷发明第二套 truth path
+- 若 live BB endpoint 落后于源码，必须显式降级，而不是在 `AutoPi` 本地偷偷发明第二套 truth path
 
 ## 关键设计约束
 

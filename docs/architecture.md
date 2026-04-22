@@ -1,11 +1,12 @@
-# pi-sdk Architecture
+# AutoPi Architecture
 
 > current product stance (2026-04-16): **Pi-native interactive autopilot package with a shared headless driver**
 > related: `README.md`, `docs/pi-sdk-bb-integration-architecture.md`, `docs/pi-native-interactive-autopilot-design-2026-04-16.md`
+> note: current product name is `AutoPi`; npm package name is `autopi`; repo-local paths and some historical document filenames still retain legacy `pi-sdk` naming.
 
 ## 1. Core Goal
 
-`pi-sdk` 的核心目标仍然不是立刻做一个“万能全自动程序员”，而是把一条 **可运行、可验证、可继续演进** 的 autopilot 主路径做成可复用产品面。
+`AutoPi` 的核心目标仍然不是立刻做一个“万能全自动程序员”，而是把一条 **可运行、可验证、可继续演进** 的 autopilot 主路径做成可复用产品面。
 
 但当前产品心智已经从早期的 **CLI-first orchestrator** 收敛为：
 
@@ -24,14 +25,14 @@
 2. 用结构化协议而不是自由文本猜状态
 3. 让 pause / resume / stop / reconstruction 成为真实产品能力
 4. 让 CLI/headless 与 interactive driver 复用同一 shared core
-5. 保持 `pi-sdk` 为 thin workflow shell，而不是把长期 truth / eval / learning 拉回本地
+5. 保持 `AutoPi` 为 thin workflow shell，而不是把长期 truth / eval / learning 拉回本地
 
 ### 当前非目标
 
 1. 不是 Pi core patch project
 2. 不是新的 host runtime / second-session wrapper
 3. 不是第一版就做多 sub-agent 并发系统
-4. 不是把 benchmark / promotion / learning registry 本地化到 `pi-sdk`
+4. 不是把 benchmark / promotion / learning registry 本地化到 `AutoPi`
 5. 不是把 `BB` 变成在线 phase scheduler
 
 ---
@@ -100,7 +101,7 @@ flowchart TD
 - **shared core 负责协议与状态逻辑**
 - **BB 负责 truth / eval / learning substrate**
 
-因此 `pi-sdk` 不应再把“隐藏第二个 `AgentSession` 的 extension wrapper”误当作真正的 in-Pi 方案。
+因此 `AutoPi` 不应再把“隐藏第二个 `AgentSession` 的 extension wrapper”误当作真正的 in-Pi 方案。
 
 ---
 
@@ -577,7 +578,7 @@ stateDiagram-v2
 对当前 repo 的下一刀，应先冻结一个**不跨 repo-owned seams** 的执行边界：
 
 1. benchmark / promotion truth 继续以 BB canonical heads、raw `autopilot_report` evidence、validation artifacts 为主
-2. `pi-sdk` 本地只负责消费、投影、对齐，不额外发明第二套 benchmark truth path
+2. `AutoPi` 本地只负责消费、投影、对齐，不额外发明第二套 benchmark truth path
 3. 允许继续本地推进的 surface，仍限于现有 seams：
    - `src/sdk/orchestrator.ts`
    - `src/substrate/types.ts`
@@ -586,7 +587,7 @@ stateDiagram-v2
 4. learned surface 只允许收敛到 narrow components：retrieval reranker、next-step route classifier、repair strategy ranker、review verdict classifier、artifact summarizer
 5. 一旦需要新的 truth path、本地 registry、或 Pi core / `ModelRegistry` / extension runtime patch，就应停止 repo-local execution 并转 handoff
 
-这条边界保证 `pi-sdk` 继续是 thin orchestration shell，而不是偷渡成 benchmark registry 或 replay/eval runtime。
+这条边界保证 `AutoPi` 继续是 thin orchestration shell，而不是偷渡成 benchmark registry 或 replay/eval runtime。
 
 ## 11.2 Post-P8 benchmark projection rule
 
@@ -600,7 +601,7 @@ stateDiagram-v2
 3. objective key 可以在本地从 `cwd + goal` 稳定导出，但它只是 **query key**，不是本地 benchmark truth 所有权声明
 4. 若 projection 继续推进需要新的 BB truth path、本地 registry、或 Pi core/runtime patch，应停止并 handoff
 
-这保证 post-P8 continuation 仍然是 thin-shell consumption / projection，而不是重新把 benchmark ownership 拉回 `pi-sdk`。
+这保证 post-P8 continuation 仍然是 thin-shell consumption / projection，而不是重新把 benchmark ownership 拉回 `AutoPi`。
 
 ## 11.3 Post-P9 benchmark-history inspection rule
 
@@ -610,11 +611,11 @@ stateDiagram-v2
 2. **recent historical inspection** 当前只允许来自已存在的 server-owned report resources：
    - `memory://autopilot/canary/reports/recent`
    - `memory://autopilot/strategy-feedback/reports/recent`
-3. `pi-sdk` 可以：
+3. `AutoPi` 可以：
    - 读取这些 recent report resources
    - 按当前 objective key 做 bounded filtering / projection
    - 把结果投影到 status / overlay / hydration / closeout 等现有 seams
-4. `pi-sdk` 不可以：
+4. `AutoPi` 不可以：
    - 创建本地 benchmark-history store / registry / ledger
    - 把 recent report filtering 升格为本地 truth ownership
    - 伪造不存在的 status-history list truth
@@ -624,7 +625,7 @@ stateDiagram-v2
 
 ## 11.4 Post-P10 promotion-governance boundary rule
 
-在 `P11.S3/S4` 落地后，`pi-sdk` 对 promotion-governance 的 repo-local continuation 进一步冻结为：
+在 `P11.S3/S4` 落地后，`AutoPi` 对 promotion-governance 的 repo-local continuation 进一步冻结为：
 
 1. 当前已证实可消费的 BB surfaces 包括：
    - `memory_autopilot_status`
@@ -638,11 +639,11 @@ stateDiagram-v2
    - `canary_verdict` / `rollout_decision` 仍是 server-owned report/eval truth，不是 repo-local runtime 可直接据此完成最终 promotion mutation 的 authority
    - final governed `promote | hold | rollback` truth 继续在单独的 BB-owned decision-authority layer
    - reconcile-plan 目前仍是 `dry_run` canonical `memory_store` payload visibility，不是本地 direct apply path
-3. `pi-sdk` 当前只允许：
+3. `AutoPi` 当前只允许：
    - 消费这些 server-owned surfaces
    - 在 status / overlay / hydration / closeout / bounded operator UX 内投影 authority summary 与 dry-run reconcile visibility
    - 通过 BB-owned authority / intent / reconcile surfaces 发起 bounded control direction，而不拥有 durable decision truth
-4. `pi-sdk` 当前不允许：
+4. `AutoPi` 当前不允许：
    - 创建 local decision ledger / promotion registry / rollback store / reconcile truth cache
    - 把 canary / strategy-feedback 直接等同于完整 governed rollout lifecycle
    - 绕过 BB `manual_reconcile` canonical path 发明 direct apply shortcut
@@ -654,7 +655,7 @@ stateDiagram-v2
 
 ## 12. Short Verdict
 
-`pi-sdk` 当前是一个 **protocol-first, extension+SDK+substrate layered autopilot foundation**。
+`AutoPi` 当前是一个 **protocol-first, extension+SDK+substrate layered autopilot foundation**。
 
 它已经验证了这条技术路径的关键假设：
 

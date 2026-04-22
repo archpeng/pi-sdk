@@ -1,7 +1,8 @@
-# pi-sdk × BB Integration Architecture
+# AutoPi × BB Integration Architecture
 
-> status: BB substrate integration foundation remains landed; as of 2026-04-16 the `pi-sdk` product surface has also been refactored toward a **Pi-first interactive package with a shared headless driver**
-> scope: `pi-sdk` as thin autopilot orchestrator + `Boston-Bot` as memory/governance/evaluation substrate
+> status: BB substrate integration foundation remains landed; as of 2026-04-16 the `AutoPi` product surface has also been refactored toward a **Pi-first interactive package with a shared headless driver**
+> scope: `AutoPi` as thin autopilot orchestrator + `Boston-Bot` as memory/governance/evaluation substrate
+> note: current product name is `AutoPi`; npm package name is `autopi`; repo-local paths and some historical design prose below still retain legacy `pi-sdk` naming.
 > baseline:
 > - `README.md`
 > - `docs/architecture.md`
@@ -15,9 +16,9 @@
 
 ## 0. Current Product Split Update
 
-当前 `pi-sdk × BB` 的正确分工应读成：
+当前 `AutoPi × BB` 的正确分工应读成：
 
-- `pi-sdk` = **Pi-native interactive workflow shell + shared headless driver**
+- `AutoPi` = **Pi-native interactive workflow shell + shared headless driver**
 - `BB` = **truth / governance / evaluation / learning substrate**
 
 并且截至当前本地验证，live `bb-memory-mcp` 已可直接响应：
@@ -28,7 +29,7 @@
 
 因此本文件中的长期边界现在需要额外补一条：
 
-> `pi-sdk` 的 primary UX 已不再是单独 CLI orchestrator，而是当前 Pi session 内的 interactive autopilot；
+> `AutoPi` 的 primary UX 已不再是单独 CLI orchestrator，而是当前 Pi session 内的 interactive autopilot；
 > 但 **长期 canonical truth / eval / learning 仍继续在 `BB`**，而不是因为 interactive 体验增强就回流到本地 runtime。
 
 具体的 package/product 设计见：

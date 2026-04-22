@@ -1,7 +1,7 @@
 {
-  "name": "pi-sdk",
+  "name": "autopi",
   "version": "0.1.0",
-  "description": "Pi-native interactive autopilot package with a shared headless driver",
+  "description": "AutoPi: Pi-native interactive autopilot package with a shared headless driver",
   "type": "module",
   "license": "MIT",
   "repository": {

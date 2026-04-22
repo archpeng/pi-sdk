@@ -6,9 +6,9 @@ import path from "node:path";
 import { buildAutopilotRunManifest, formatAutopilotDoctorResult, runAutopilotDoctorChecks, type AutopilotPackageMetadata } from "../src/substrate/manifest.ts";
 
 const packageMetadata: AutopilotPackageMetadata = {
-  name: "pi-sdk",
+  name: "autopi",
   version: "0.1.0",
-  description: "Pi-native interactive autopilot package with a shared headless driver",
+  description: "AutoPi: Pi-native interactive autopilot package with a shared headless driver",
   keywords: ["pi-package", "pi", "autopilot"],
   files: ["dist", "src", "skills", "README.md", "docs/runbooks"],
   main: "./dist/index.js",
@@ -22,7 +22,7 @@ const packageMetadata: AutopilotPackageMetadata = {
 };
 
 function createFixtureRoot(options: { includePlanControl?: boolean } = {}): string {
-  const root = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-manifest-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "autopi-manifest-"));
   mkdirSync(path.join(root, "dist", "sdk"), { recursive: true });
   mkdirSync(path.join(root, "dist", "extension"), { recursive: true });
   mkdirSync(path.join(root, "docs", "runbooks"), { recursive: true });
@@ -36,7 +36,7 @@ function createFixtureRoot(options: { includePlanControl?: boolean } = {}): stri
     writeFileSync(path.join(root, "docs", "plan", "README.md"), "# plan\n");
   }
   writeFileSync(path.join(root, "package.json"), JSON.stringify(packageMetadata, null, 2));
-  writeFileSync(path.join(root, "README.md"), "# pi-sdk\n");
+  writeFileSync(path.join(root, "README.md"), "# AutoPi\n");
   writeFileSync(path.join(root, "docs", "runbooks", "pi-sdk-autopilot-v1-operator-runbook.md"), "# runbook\n");
   writeFileSync(path.join(root, "dist", "sdk", "orchestrator.js"), "#!/usr/bin/env node\n");
   writeFileSync(path.join(root, "dist", "extension", "index.js"), "export default {};\n");
@@ -59,7 +59,7 @@ function createFixtureRoot(options: { includePlanControl?: boolean } = {}): stri
 test("buildAutopilotRunManifest returns install, diagnostics, and docs truth for release readiness", () => {
   const manifest = buildAutopilotRunManifest({ packageRoot: "/repo", packageMetadata });
 
-  assert.equal(manifest.packageName, "pi-sdk");
+  assert.equal(manifest.packageName, "autopi");
   assert.equal(manifest.version, "0.1.0");
   assert.equal(manifest.entrypoints.bin, "./dist/sdk/orchestrator.js");
   assert.deepEqual(manifest.entrypoints.extensions, ["./src/extension/index.ts"]);

@@ -1,13 +1,15 @@
-# pi-sdk Autopilot V1 Operator Runbook
+# AutoPi V1 Operator Runbook
 
 ## Product Surface
 
-`pi-sdk` v1 is a **Pi-native interactive autopilot package with a shared headless driver**.
+`AutoPi` v1 is a **Pi-native interactive autopilot package with a shared headless driver**.
+
+> current product name is `AutoPi`; npm package name is `autopi`; repo-local paths, runbook filename, and some historical doc references still retain legacy `pi-sdk` naming.
 
 - primary UX: current Pi session interactive autopilot
 - secondary UX: CLI/headless driver
 - truth / benchmark / promotion / eval / learning: BB-owned
-- `pi-sdk`: workflow shell / projection / operator UX only
+- `AutoPi`: workflow shell / projection / operator UX only
 
 ## Install
 
@@ -161,7 +163,7 @@ npm run smoke:pi-autoload
 This proof uses the final-completion canonical route:
 
 1. clean `PI_CODING_AGENT_DIR`
-2. temp project `.pi/settings.json` with the local `pi-sdk` package path
+2. temp project `.pi/settings.json` with the local `autopi` package path (repo checkout path may still be `/home/peng/dt-git/github/pi-sdk`)
 3. started `pi` process in print mode
 4. slash-command proof via `/autopilot-status`
 5. control run without project package settings to show model fallback instead of autoload

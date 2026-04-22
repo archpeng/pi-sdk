@@ -1,4 +1,6 @@
-# pi-sdk Roadmap
+# AutoPi Roadmap
+
+> current product name is `AutoPi`; npm package name is `autopi`; the roadmap filenames below intentionally retain their legacy `pi-sdk` prefix for continuity.
 
 ## Active Endgame Roadmap
 
