@@ -25,6 +25,7 @@ import {
   AUTOPILOT_STATUSES,
   deriveAutopilotObjectiveKey,
   formatAutopilotReport,
+  resolveAutopilotReportStopLaw,
   type AutopilotReport,
   type AutopilotToolDetails,
   isAutopilotToolDetails,
@@ -60,6 +61,8 @@ const AutopilotReportParams = Type.Object({
   decisionMode: Type.Optional(Type.Union([Type.Literal("standard"), Type.Literal("goal_directed")])),
   decisionBasis: Type.Optional(Type.Array(Type.String({ description: "Why the chosen route best advances the overall objective" }))),
   candidateRoutes: Type.Optional(Type.Array(Type.String({ description: "Candidate routes considered before choosing the next path" }))),
+  doneWhenMet: Type.Optional(Type.Array(Type.String({ description: "Exact active-slice done_when items satisfied in this turn" }))),
+  stopBoundaryHit: Type.Optional(Type.Array(Type.String({ description: "Exact active-slice stop_boundary items hit in this turn" }))),
   evidence: Type.Optional(Type.Array(Type.String({ description: "Concrete validation evidence" }))),
   artifacts: Type.Optional(Type.Array(Type.String({ description: "Files or outputs produced" }))),
   risks: Type.Optional(Type.Array(Type.String({ description: "Open risks or blockers" }))),
@@ -81,6 +84,49 @@ function persistRuntime(pi: ExtensionAPI, runtime: AutopilotRuntimeState | null)
 
 function truncateWarnings(warnings: string[]): string[] {
   return warnings.slice(-5);
+}
+
+function normalizeAutopilotReportStopLaw(
+  runtime: AutopilotRuntimeState | null,
+  params: {
+    status: AutopilotReport["status"];
+    doneWhenMet?: string[] | undefined;
+    stopBoundaryHit?: string[] | undefined;
+  },
+): Pick<AutopilotReport, "status" | "doneWhenMet" | "stopBoundaryHit"> {
+  const doneWhenMet = [...(params.doneWhenMet ?? [])];
+  const stopBoundaryHit = [...(params.stopBoundaryHit ?? [])];
+
+  if (!runtime?.activeSlice || (runtime.phase !== "execute" && runtime.phase !== "review")) {
+    return {
+      status: params.status,
+      ...(doneWhenMet.length > 0 ? { doneWhenMet } : {}),
+      ...(stopBoundaryHit.length > 0 ? { stopBoundaryHit } : {}),
+    };
+  }
+
+  const resolution = resolveAutopilotReportStopLaw(runtime.activeSlice, {
+    status: params.status,
+    doneWhenMet,
+    stopBoundaryHit,
+  });
+
+  if (resolution.unexpectedDoneWhenMet.length > 0) {
+    throw new Error(
+      `autopilot_report doneWhenMet must match active slice done_when items (${resolution.unexpectedDoneWhenMet.join(" | ")})`,
+    );
+  }
+  if (resolution.unexpectedStopBoundaryHit.length > 0) {
+    throw new Error(
+      `autopilot_report stopBoundaryHit must match active slice stop_boundary items (${resolution.unexpectedStopBoundaryHit.join(" | ")})`,
+    );
+  }
+
+  return {
+    status: resolution.derivedStatus,
+    ...(resolution.doneWhenMet.length > 0 ? { doneWhenMet: resolution.doneWhenMet } : {}),
+    ...(resolution.stopBoundaryHit.length > 0 ? { stopBoundaryHit: resolution.stopBoundaryHit } : {}),
+  };
 }
 
 function ensureSubstrate(cwd: string): AutopilotSubstrate {
@@ -165,7 +211,17 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
   const dispatchCurrentPhase = async (ctx: ExtensionContext) => {
     if (!runtime) return;
 
-    const built = await buildInteractivePrompt(runtime, reports, ctx.cwd, buildPhasePrompt);
+    let built: Awaited<ReturnType<typeof buildInteractivePrompt>>;
+    try {
+      built = await buildInteractivePrompt(runtime, reports, ctx.cwd, buildPhasePrompt);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : `failed to build deterministic autopilot dispatch for ${runtime.phase}`;
+      runtime = haltInteractiveRuntime(runtime, reason);
+      persistRuntime(pi, runtime);
+      updateAutopilotUi(ctx, runtime, reports);
+      notify(ctx, reason, "warning");
+      return;
+    }
     if (built.substrateMode === "local" && !built.activeSlice) {
       const reason = missingLocalControlPlaneReason(ctx.cwd);
       runtime = haltInteractiveRuntime(runtime, reason);
@@ -218,9 +274,9 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     updateAutopilotUi(ctx, runtime, reports);
 
     if (ctx.isIdle() && !ctx.hasPendingMessages()) {
-      pi.sendUserMessage(built.prompt);
+      pi.sendUserMessage(built.userMessage);
     } else {
-      pi.sendUserMessage(built.prompt, { deliverAs: "followUp" });
+      pi.sendUserMessage(built.userMessage, { deliverAs: "followUp" });
     }
   };
 
@@ -247,9 +303,26 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
   pi.on("before_agent_start", async (event, ctx) => {
     if (!runtime || runtime.mode !== "running") return undefined;
 
-    const missingTools = getMissingRequiredTools(event.systemPromptOptions?.selectedTools);
-    if (missingTools.length > 0) {
-      const reason = buildMissingToolsReason(missingTools, event.systemPromptOptions?.selectedTools);
+    try {
+      const missingTools = getMissingRequiredTools(event.systemPromptOptions?.selectedTools, runtime.phase);
+      if (missingTools.length > 0) {
+        const reason = buildMissingToolsReason(missingTools, event.systemPromptOptions?.selectedTools, runtime.phase);
+        runtime = haltInteractiveRuntime(runtime, reason);
+        pendingDispatch = false;
+        persistRuntime(pi, runtime);
+        updateAutopilotUi(ctx, runtime, reports);
+        notify(ctx, reason, "warning");
+        return {
+          message: {
+            customType: "autopilot-missing-tools",
+            content: reason,
+            display: true,
+          },
+          systemPrompt: `${event.systemPrompt}\n\nAutopilot cannot continue because required tools are missing from the active tool allowlist. Do not execute the requested autopilot plan. Briefly tell the operator which required tool is missing and how to re-enable it.`,
+        };
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : `failed to resolve deterministic tool contract for ${runtime.phase}`;
       runtime = haltInteractiveRuntime(runtime, reason);
       pendingDispatch = false;
       persistRuntime(pi, runtime);
@@ -257,11 +330,11 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       notify(ctx, reason, "warning");
       return {
         message: {
-          customType: "autopilot-missing-tools",
+          customType: "autopilot-invalid-route",
           content: reason,
           display: true,
         },
-        systemPrompt: `${event.systemPrompt}\n\nAutopilot cannot continue because required tools are missing from the active tool allowlist. Do not execute the requested autopilot plan. Briefly tell the operator which required tool is missing and how to re-enable it.`,
+        systemPrompt: `${event.systemPrompt}\n\nAutopilot cannot continue because the deterministic phase route is invalid. Do not execute the requested autopilot plan. Briefly tell the operator which route failed and why.`,
       };
     }
 
@@ -382,9 +455,25 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
         persistRuntime(pi, runtime);
         throw new Error(reason);
       }
+      let stopLaw: Pick<AutopilotReport, "status" | "doneWhenMet" | "stopBoundaryHit">;
+      try {
+        stopLaw = normalizeAutopilotReportStopLaw(runtime, {
+          status: params.status,
+          doneWhenMet: params.doneWhenMet,
+          stopBoundaryHit: params.stopBoundaryHit,
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "invalid autopilot stop-law report";
+        if (runtime) {
+          runtime = haltInteractiveRuntime(runtime, reason);
+          persistRuntime(pi, runtime);
+        }
+        throw error;
+      }
+
       const report: AutopilotReport = {
         phase: params.phase,
-        status: params.status,
+        status: stopLaw.status,
         summary: params.summary,
         waveId: params.waveId,
         stepId: params.stepId,
@@ -392,6 +481,8 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
         decisionMode: params.decisionMode,
         decisionBasis: [...(params.decisionBasis ?? [])],
         candidateRoutes: [...(params.candidateRoutes ?? [])],
+        ...(stopLaw.doneWhenMet ? { doneWhenMet: [...stopLaw.doneWhenMet] } : {}),
+        ...(stopLaw.stopBoundaryHit ? { stopBoundaryHit: [...stopLaw.stopBoundaryHit] } : {}),
         evidence: [...(params.evidence ?? [])],
         artifacts: [...(params.artifacts ?? [])],
         risks: [...(params.risks ?? [])],

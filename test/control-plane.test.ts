@@ -79,6 +79,16 @@ test("parseWorksetActiveStage extracts the current active stage contract", () =>
 2. active slice snapshot shape
 3. deterministic writeback contract for \`STATUS / WORKSET\`
 
+done_when:
+
+1. active stage snapshot carries explicit stop-law fields
+2. parser extracts active-slice done_when and stop_boundary lists
+
+stop_boundary:
+
+1. stop if the parser only infers completion from prose instead of explicit lists
+2. stop if adding stop-law parsing breaks existing machine headings
+
 必须避免：
 
 1. 直接开始写 extension scheduler 细节
@@ -96,6 +106,14 @@ test("parseWorksetActiveStage extracts the current active stage contract", () =>
     "active pack resolution rules",
     "active slice snapshot shape",
     "deterministic writeback contract for `STATUS / WORKSET`",
+  ]);
+  assert.deepEqual(snapshot.doneWhen, [
+    "active stage snapshot carries explicit stop-law fields",
+    "parser extracts active-slice done_when and stop_boundary lists",
+  ]);
+  assert.deepEqual(snapshot.stopBoundary, [
+    "stop if the parser only infers completion from prose instead of explicit lists",
+    "stop if adding stop-law parsing breaks existing machine headings",
   ]);
   assert.deepEqual(snapshot.avoid, [
     "直接开始写 extension scheduler 细节",
@@ -116,6 +134,14 @@ test("current active plan pack matches the repo's machine-readable control-plane
   assert.notEqual(controlPlane.intendedHandoff.trim(), "");
   assert.notEqual(activeStage.owner.trim(), "");
   assert.notEqual(activeStage.state.trim(), "");
+
+  if (activeStage.stageId === "PACK_COMPLETE") {
+    assert.equal(activeStage.owner, "closeout");
+    assert.equal(activeStage.state, "DONE");
+  } else {
+    assert.ok((activeStage.doneWhen ?? []).length > 0);
+    assert.ok((activeStage.stopBoundary ?? []).length > 0);
+  }
 });
 
 test("buildControlPlaneProgressTransition freezes the deterministic status/workset progression contract", () => {
@@ -208,6 +234,14 @@ test("loadLocalControlPlaneSnapshot resolves the active pack and active stage fr
 
 1. active pack file loading
 
+done_when:
+
+1. local snapshot exposes active stage stop-law fields
+
+stop_boundary:
+
+1. stop if the active stage loses explicit done_when / stop_boundary data
+
 必须避免：
 
 1. BB dependency
@@ -232,6 +266,14 @@ test("loadLocalControlPlaneSnapshot resolves the active pack and active stage fr
 
 1. active pack file loading
 
+done_when:
+
+1. local snapshot exposes active stage stop-law fields
+
+stop_boundary:
+
+1. stop if the active stage loses explicit done_when / stop_boundary data
+
 必须避免：
 
 1. BB dependency
@@ -250,6 +292,14 @@ test("loadLocalControlPlaneSnapshot resolves the active pack and active stage fr
 
 1. deterministic writeback contract
 
+done_when:
+
+1. next-stage plan metadata includes stop-law lists
+
+stop_boundary:
+
+1. stop if writeback strips explicit stop-law sections from queued stages
+
 必须避免：
 
 1. model-owned control-plane edits
@@ -264,6 +314,10 @@ test("loadLocalControlPlaneSnapshot resolves the active pack and active stage fr
   assert.equal(snapshot.activeStage.stageId, "A2");
   assert.equal(snapshot.activeStage.owner, "execute-plan");
   assert.equal(snapshot.activeStage.state, "READY");
+  assert.deepEqual(snapshot.activeStage.doneWhen, ["local snapshot exposes active stage stop-law fields"]);
+  assert.deepEqual(snapshot.activeStage.stopBoundary, ["stop if the active stage loses explicit done_when / stop_boundary data"]);
+  assert.deepEqual(snapshot.sliceDefinitions.A3?.doneWhen, ["next-stage plan metadata includes stop-law lists"]);
+  assert.deepEqual(snapshot.sliceDefinitions.A3?.stopBoundary, ["stop if writeback strips explicit stop-law sections from queued stages"]);
 });
 
 test("applyControlPlaneProgressWriteback updates README, STATUS, and WORKSET for the next active slice", () => {
@@ -285,6 +339,8 @@ test("applyControlPlaneProgressWriteback updates README, STATUS, and WORKSET for
     priority: "highest",
     objectives: ["let local substrate deterministic-write STATUS / WORKSET"],
     requiredDeliverables: ["status/workset mutation helper", "bounded file update rules"],
+    doneWhen: ["next active stage carries explicit done_when / stop_boundary sections"],
+    stopBoundary: ["stop if writeback drops stop-law fields from STATUS or WORKSET"],
     avoid: ["extension-owned file mutation"],
   };
 
@@ -332,6 +388,14 @@ test("applyControlPlaneProgressWriteback updates README, STATUS, and WORKSET for
 必须交付：
 
 1. active pack file loading
+
+done_when:
+
+1. local snapshot exposes active stage stop-law fields
+
+stop_boundary:
+
+1. stop if the active stage loses explicit done_when / stop_boundary data
 `,
     worksetMarkdown: `# Example Workset
 
@@ -356,6 +420,14 @@ test("applyControlPlaneProgressWriteback updates README, STATUS, and WORKSET for
 必须交付：
 
 1. active pack file loading
+
+done_when:
+
+1. local snapshot exposes active stage stop-law fields
+
+stop_boundary:
+
+1. stop if the active stage loses explicit done_when / stop_boundary data
 `,
     transition,
     nextStage,
@@ -369,6 +441,8 @@ test("applyControlPlaneProgressWriteback updates README, STATUS, and WORKSET for
   assert.match(updated.worksetMarkdown, /- \[x\] `A2` local-active-pack-resolution/);
   assert.match(updated.worksetMarkdown, /### `A3`/);
   assert.match(updated.worksetMarkdown, /status\/workset mutation helper/);
+  assert.match(updated.statusMarkdown, /done_when:[\s\S]*next active stage carries explicit done_when \/ stop_boundary sections/);
+  assert.match(updated.worksetMarkdown, /stop_boundary:[\s\S]*stop if writeback drops stop-law fields from STATUS or WORKSET/);
 });
 
 test("resolveNextStageFromStageOrder returns the next stage metadata from ordered stage ids", () => {
@@ -382,6 +456,8 @@ test("resolveNextStageFromStageOrder returns the next stage metadata from ordere
         priority: "highest",
         objectives: ["write accepted reports back to control plane"],
         requiredDeliverables: ["deterministic writeback orchestration"],
+        doneWhen: ["writeback keeps explicit stop-law metadata on the next stage"],
+        stopBoundary: ["stop if next-stage stop-law metadata is dropped"],
         avoid: ["model-picked next slice"],
       },
       C3: {
@@ -391,6 +467,8 @@ test("resolveNextStageFromStageOrder returns the next stage metadata from ordere
         priority: "highest",
         objectives: ["keep control truth across compact/resume"],
         requiredDeliverables: ["resync after compact"],
+        doneWhen: ["resume path still sees explicit stop-law metadata"],
+        stopBoundary: ["stop if compact/resume loses next-stage stop-law truth"],
         avoid: ["control-plane drift"],
       },
       D1: {
@@ -400,6 +478,8 @@ test("resolveNextStageFromStageOrder returns the next stage metadata from ordere
         priority: "highest",
         objectives: ["land repo safety guards"],
         requiredDeliverables: ["dirty-repo guard"],
+        doneWhen: ["dirty-repo guard stage keeps explicit stop-law metadata"],
+        stopBoundary: ["stop if safety-guard stage loses stop-law metadata"],
         avoid: ["unsafe auto-run"],
       },
     },
@@ -413,6 +493,8 @@ test("resolveNextStageFromStageOrder returns the next stage metadata from ordere
     priority: "highest",
     objectives: ["write accepted reports back to control plane"],
     requiredDeliverables: ["deterministic writeback orchestration"],
+    doneWhen: ["writeback keeps explicit stop-law metadata on the next stage"],
+    stopBoundary: ["stop if next-stage stop-law metadata is dropped"],
     avoid: ["model-picked next slice"],
   });
 });
@@ -461,6 +543,14 @@ test("loadLocalControlPlaneSnapshot preserves explicit next-stage metadata from 
 
 1. parser reads explicit metadata
 
+done_when:
+
+1. plan definitions expose explicit stop-law metadata
+
+stop_boundary:
+
+1. stop if next-stage metadata is synthesized instead of parsed
+
 必须避免：
 
 1. synthesized next-stage defaults
@@ -478,6 +568,14 @@ test("loadLocalControlPlaneSnapshot preserves explicit next-stage metadata from 
 交付物：
 
 1. README matches local substrate behavior
+
+done_when:
+
+1. docs stage keeps explicit stop-law metadata
+
+stop_boundary:
+
+1. stop if docs alignment is reported complete without explicit stop-law truth
 
 必须避免：
 
@@ -507,6 +605,14 @@ test("loadLocalControlPlaneSnapshot preserves explicit next-stage metadata from 
 目标：
 
 - normalize control-plane truth
+
+done_when:
+
+1. active stage exposes explicit stop-law metadata
+
+stop_boundary:
+
+1. stop if active-stage stop-law metadata is missing from the workset
 `,
     "utf8",
   );
@@ -521,6 +627,8 @@ test("loadLocalControlPlaneSnapshot preserves explicit next-stage metadata from 
     priority: "medium",
     objectives: ["align README and architecture"],
     requiredDeliverables: ["README matches local substrate behavior"],
+    doneWhen: ["docs stage keeps explicit stop-law metadata"],
+    stopBoundary: ["stop if docs alignment is reported complete without explicit stop-law truth"],
     avoid: ["doc drift"],
   });
 });

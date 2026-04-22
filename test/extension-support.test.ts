@@ -5,12 +5,12 @@ import { buildSessionShutdownMessage } from "../src/extension/session-transition
 import { updateAutopilotUi } from "../src/extension/runtime-ui.ts";
 import { preflightAutopilotCommand } from "../src/extension/tool-guard.ts";
 
-test("preflightAutopilotCommand accepts prompts that still include autopilot_report", () => {
+test("preflightAutopilotCommand accepts prompts that still include phase-required tools", () => {
   const result = preflightAutopilotCommand({
     getSystemPrompt() {
       return "Active tools: read bash edit write autopilot_report";
     },
-  } as any);
+  } as any, "master_plan");
 
   assert.deepEqual(result, { ok: true });
 });
@@ -20,7 +20,7 @@ test("preflightAutopilotCommand reports a missing autopilot_report tool", () => 
     getSystemPrompt() {
       return "Active tools: read bash edit write";
     },
-  } as any);
+  } as any, "master_plan");
 
   assert.equal(result.ok, false);
   assert.match(result.reason, /autopilot_report/);

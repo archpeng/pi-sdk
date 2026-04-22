@@ -1,5 +1,6 @@
 import {
   AUTOPILOT_PROTOCOL_HEADER,
+  formatAutopilotCurrentPhaseRouteLines,
   type AutopilotPhase,
   type AutopilotPromptContext,
   type AutopilotReport,
@@ -76,6 +77,12 @@ export function buildPhasePrompt(phase: AutopilotPhase, context: AutopilotPrompt
           ...(context.activeSlice.requiredDeliverables[0]
             ? [`Current active slice deliverables: ${context.activeSlice.requiredDeliverables.join(" | ")}`]
             : []),
+          ...((context.activeSlice.doneWhen ?? [])[0]
+            ? [`Current active slice done_when: ${(context.activeSlice.doneWhen ?? []).join(" | ")}`]
+            : []),
+          ...((context.activeSlice.stopBoundary ?? [])[0]
+            ? [`Current active slice stop_boundary: ${(context.activeSlice.stopBoundary ?? []).join(" | ")}`]
+            : []),
           ...(context.activeSlice.avoid[0]
             ? [`Current active slice avoid list: ${context.activeSlice.avoid.join(" | ")}`]
             : []),
@@ -83,12 +90,23 @@ export function buildPhasePrompt(phase: AutopilotPhase, context: AutopilotPrompt
       : []),
     "Recent autopilot reports:",
     formatRecentReports(context.recentReports),
+    ...(context.phaseRoutingMatrix && context.phaseRoutingMatrix.length > 0
+      ? ["", "Deterministic phase routing matrix:", ...context.phaseRoutingMatrix]
+      : []),
+    ...(context.phaseRoute
+      ? ["", "Current phase route:", ...formatAutopilotCurrentPhaseRouteLines(context.phaseRoute)]
+      : []),
     ...(context.substrateContext && context.substrateContext.length > 0 ? ["", ...context.substrateContext] : []),
     "",
     protocol(phase),
     ...(context.activeSlice ? [`- Set \`stepId\` to \`${context.activeSlice.stepId}\` in \`autopilot_report\`.`] : []),
     ...(context.activeSlice
-      ? ["- Do not claim slice completion unless the current active slice deliverables are actually satisfied and reflected in evidence/artifacts."]
+      ? [
+          "- Do not claim slice completion unless the current active slice deliverables are actually satisfied and reflected in evidence/artifacts.",
+          "- Populate `doneWhenMet` with the exact active-slice `done_when` items satisfied in this turn.",
+          "- Populate `stopBoundaryHit` with the exact active-slice `stop_boundary` items that forced replan/stop; leave it empty otherwise.",
+          "- Expect runtime progression to use `doneWhenMet` / `stopBoundaryHit`, not only the requested status string.",
+        ]
       : []),
     "",
   ];

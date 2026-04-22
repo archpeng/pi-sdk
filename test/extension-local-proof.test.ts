@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import autopilotExtension from "../src/extension/index.ts";
@@ -9,7 +9,7 @@ import { setRuntimeSubstrate } from "../src/substrate/index.ts";
 function createFakePi() {
   const handlers = new Map<string, Array<(event: any, ctx: any) => Promise<any> | any>>();
   const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> | void }>();
-  const tools: Array<{ name: string }> = [];
+  const tools: Array<{ name: string; execute?: (toolCallId: string, params: any) => Promise<any> | any }> = [];
   const sentUserMessages: Array<{ content: unknown; options?: { deliverAs?: "steer" | "followUp" } }> = [];
   const appendedEntries: Array<{ customType: string; data: unknown }> = [];
 
@@ -22,7 +22,7 @@ function createFakePi() {
     registerCommand(name: string, options: { handler: (args: string, ctx: any) => Promise<void> | void }) {
       commands.set(name, options);
     },
-    registerTool(tool: { name: string }) {
+    registerTool(tool: { name: string; execute?: (toolCallId: string, params: any) => Promise<any> | any }) {
       tools.push(tool);
     },
     sendUserMessage(content: unknown, options?: { deliverAs?: "steer" | "followUp" }) {
@@ -46,6 +46,16 @@ async function runHandlers(
   for (const handler of handlers.get(eventName) ?? []) {
     await handler(event, ctx);
   }
+}
+
+function createTempAgentDir(skillFiles: Record<string, string>): string {
+  const agentDir = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-agent-dir-"));
+  for (const [skillName, contents] of Object.entries(skillFiles)) {
+    const skillDir = path.join(agentDir, "skills", skillName);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(path.join(skillDir, "SKILL.md"), contents, "utf8");
+  }
+  return agentDir;
 }
 
 function writeLocalPlanPack(repoRoot: string): void {
@@ -91,6 +101,17 @@ function writeLocalPlanPack(repoRoot: string): void {
 
 1. local-mode same-session proof
 2. real file writeback proof
+3. execute-phase stop-law completion proof
+
+done_when:
+
+1. local execute review is routed with deterministic skill preload
+2. single-root docs/plan writeback advances the active slice before redispatch
+
+stop_boundary:
+
+1. stop if redispatch only proves prompt text and not actual docs/plan writeback
+2. stop if execute completion skips explicit stop-law reporting
 
 必须避免：
 
@@ -109,6 +130,14 @@ function writeLocalPlanPack(repoRoot: string): void {
 交付物：
 
 1. final plan closeout
+
+done_when:
+
+1. closeout stage keeps explicit stop-law sections after execute writeback
+
+stop_boundary:
+
+1. stop if execute-phase writeback points outside docs/plan
 
 必须避免：
 
@@ -142,6 +171,26 @@ function writeLocalPlanPack(repoRoot: string): void {
 目标：
 
 - prove extension-only local same-session plan progression
+
+必须交付：
+
+1. local-mode same-session proof
+2. real file writeback proof
+3. execute-phase stop-law completion proof
+
+done_when:
+
+1. local execute review is routed with deterministic skill preload
+2. single-root docs/plan writeback advances the active slice before redispatch
+
+stop_boundary:
+
+1. stop if redispatch only proves prompt text and not actual docs/plan writeback
+2. stop if execute completion skips explicit stop-law reporting
+
+必须避免：
+
+1. fake substrate final proof
 `,
     "utf8",
   );
@@ -172,6 +221,17 @@ function writeLocalPlanPack(repoRoot: string): void {
 
 1. local-mode same-session proof
 2. real file writeback proof
+3. execute-phase stop-law completion proof
+
+done_when:
+
+1. local execute review is routed with deterministic skill preload
+2. single-root docs/plan writeback advances the active slice before redispatch
+
+stop_boundary:
+
+1. stop if redispatch only proves prompt text and not actual docs/plan writeback
+2. stop if execute completion skips explicit stop-law reporting
 
 必须避免：
 
@@ -253,8 +313,176 @@ test("extension-only local mode can progress a repo-local active slice and rewri
 
     assert.match(readme, /## Current Active Slice[\s\S]*- `D3`/);
     assert.match(status, /- active_step: `D3`/);
+    assert.match(status, /done_when:[\s\S]*closeout stage keeps explicit stop-law sections after execute writeback/);
     assert.match(workset, /### `D3`/);
+    assert.match(workset, /stop_boundary:[\s\S]*stop if execute-phase writeback points outside docs\/plan/);
   } finally {
     setRuntimeSubstrate(undefined);
+  }
+});
+
+test("local execute proof binds routed skills, uses stop-law completion, and redispatches the next slice from single-root docs/plan truth", async () => {
+  const repoRoot = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-extension-local-proof-routed-"));
+  const agentDir = createTempAgentDir({
+    "plan-creator": "# plan-creator\n\nUse the plan lane.",
+    "execute-plan": "# execute-plan\n\nUse the execute lane.",
+    "execution-reality-audit": "# execution-reality-audit\n\nUse the review lane.",
+  });
+  const priorAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  writeLocalPlanPack(repoRoot);
+  setRuntimeSubstrate(undefined);
+
+  const { pi, handlers, commands, tools, sentUserMessages, appendedEntries } = createFakePi();
+  autopilotExtension(pi);
+
+  const ctx = {
+    cwd: repoRoot,
+    hasUI: true,
+    ui: {
+      notify() {},
+      setStatus() {},
+      setWidget() {},
+      theme: {
+        fg: (_token: string, text: string) => text,
+      },
+    },
+    sessionManager: {
+      getBranch() {
+        return [];
+      },
+    },
+    isIdle() {
+      return true;
+    },
+    hasPendingMessages() {
+      return false;
+    },
+    abort() {},
+    signal: undefined,
+  };
+
+  try {
+    await commands.get("autopilot-run")?.handler("complete the active slice", ctx);
+
+    assert.equal(sentUserMessages.length, 1);
+    assert.match(String(sentUserMessages[0]?.content), /\[AUTOPILOT ROUTED DISPATCH\]/);
+    assert.match(String(sentUserMessages[0]?.content), /Bound surface: skill `plan-creator`/);
+    assert.match(String(sentUserMessages[0]?.content), /Current active slice: D2/);
+
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+
+    const masterPlan = await tool.execute?.("tool-call-1", {
+      phase: "master_plan",
+      status: "continue",
+      summary: "planned the proof route",
+      stepId: "D2",
+      evidence: ["local control plane loaded"],
+      artifacts: ["docs/plan/README.md"],
+      risks: [],
+    });
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: masterPlan?.details,
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(sentUserMessages.length, 2);
+    assert.match(String(sentUserMessages[1]?.content), /Bound surface: skill `plan-creator`/);
+    assert.match(String(sentUserMessages[1]?.content), /Current active slice: D2/);
+
+    const wavePlan = await tool.execute?.("tool-call-2", {
+      phase: "wave_plan",
+      status: "continue",
+      summary: "queued the execute proof",
+      stepId: "D2",
+      evidence: ["execute slice stays bounded"],
+      artifacts: ["docs/plan/active_WORKSET.md"],
+      risks: [],
+    });
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: wavePlan?.details,
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(sentUserMessages.length, 3);
+    assert.match(String(sentUserMessages[2]?.content), /Bound surface: skill `execute-plan`/);
+    assert.match(String(sentUserMessages[2]?.content), /Current active slice: D2/);
+    assert.match(
+      String(sentUserMessages[2]?.content),
+      /Current active slice done_when: local execute review is routed with deterministic skill preload \| single-root docs\/plan writeback advances the active slice before redispatch/,
+    );
+    assert.match(
+      String(sentUserMessages[2]?.content),
+      /Current active slice stop_boundary: stop if redispatch only proves prompt text and not actual docs\/plan writeback \| stop if execute completion skips explicit stop-law reporting/,
+    );
+
+    const executeResult = await tool.execute?.("tool-call-3", {
+      phase: "execute",
+      status: "continue",
+      summary: "execute proof landed",
+      stepId: "D2",
+      doneWhenMet: [
+        "local execute review is routed with deterministic skill preload",
+        "single-root docs/plan writeback advances the active slice before redispatch",
+      ],
+      evidence: ["execute proof exercised routed dispatch and writeback"],
+      artifacts: ["docs/plan/active_STATUS.md", "docs/plan/active_WORKSET.md"],
+      risks: [],
+    });
+    assert.equal(executeResult?.details?.report?.status, "completed");
+
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: executeResult?.details,
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(sentUserMessages.length, 4);
+    assert.match(String(sentUserMessages[3]?.content), /Bound surface: skill `execution-reality-audit`/);
+    assert.match(String(sentUserMessages[3]?.content), /Current active slice: D3/);
+    assert.match(
+      String(sentUserMessages[3]?.content),
+      /Current active slice done_when: closeout stage keeps explicit stop-law sections after execute writeback/,
+    );
+
+    const readme = readFileSync(path.join(repoRoot, "docs", "plan", "README.md"), "utf8");
+    const status = readFileSync(path.join(repoRoot, "docs", "plan", "active_STATUS.md"), "utf8");
+    const workset = readFileSync(path.join(repoRoot, "docs", "plan", "active_WORKSET.md"), "utf8");
+    const latestRuntime = appendedEntries.at(-1)?.data as { autopilotOwnedPaths?: string[] } | undefined;
+
+    assert.match(readme, /## Current Active Slice[\s\S]*- `D3`/);
+    assert.match(status, /## Immediate Focus[\s\S]*### `D3`/);
+    assert.match(status, /done_when:[\s\S]*closeout stage keeps explicit stop-law sections after execute writeback/);
+    assert.match(workset, /## Active Stage[\s\S]*### `D3`/);
+    assert.match(workset, /stop_boundary:[\s\S]*stop if execute-phase writeback points outside docs\/plan/);
+    assert.equal(latestRuntime?.autopilotOwnedPaths?.includes("docs/plan/README.md"), true);
+    assert.equal(latestRuntime?.autopilotOwnedPaths?.includes("docs/plan/active_STATUS.md"), true);
+    assert.equal(latestRuntime?.autopilotOwnedPaths?.includes("docs/plan/active_WORKSET.md"), true);
+  } finally {
+    setRuntimeSubstrate(undefined);
+    rmSync(agentDir, { recursive: true, force: true });
+    if (priorAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = priorAgentDir;
+    }
   }
 });

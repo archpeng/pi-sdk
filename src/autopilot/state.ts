@@ -100,6 +100,8 @@ export function isAutopilotRuntimeState(value: unknown): value is AutopilotRunti
         typeof candidate.activeSlice.state === "string" &&
         Array.isArray(candidate.activeSlice.objectives) &&
         Array.isArray(candidate.activeSlice.requiredDeliverables) &&
+        (candidate.activeSlice.doneWhen === undefined || Array.isArray(candidate.activeSlice.doneWhen)) &&
+        (candidate.activeSlice.stopBoundary === undefined || Array.isArray(candidate.activeSlice.stopBoundary)) &&
         Array.isArray(candidate.activeSlice.avoid))) &&
     (candidate.substrateMode === undefined || candidate.substrateMode === "local" || candidate.substrateMode === "bb") &&
     (candidate.objectiveKey === undefined || typeof candidate.objectiveKey === "string") &&

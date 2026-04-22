@@ -62,6 +62,23 @@ pi update
 node dist/sdk/orchestrator.js --goal "Ship the bounded slice" --cwd /path/to/repo
 ```
 
+## Interactive Runtime Contract
+
+Current interactive autopilot behavior is deterministic, not best-effort:
+
+- `master_plan` / `wave_plan` / `replan` -> skill `plan-creator`
+- `execute` -> skill `execute-plan`
+- `review` -> skill `execution-reality-audit`
+- `closeout` -> built-in repo-local closeout prompt surface
+
+Operator-visible consequences:
+
+- the extension dispatches a same-session `[AUTOPILOT ROUTED DISPATCH]` message instead of a generic phase prompt
+- skill-bound phases must be able to resolve a non-empty routed `SKILL.md`
+- selected tools must include `autopilot_report`; skill-bound phases must also include `read`
+- local control-plane truth is single-root at `docs/plan/*`; do not maintain a second `docs/active/*` mirror
+- execute / review progression is derived from active-slice `done_when / stop_boundary` through `doneWhenMet / stopBoundaryHit`
+
 ## Readiness / Diagnostics
 
 ### Version
@@ -189,11 +206,29 @@ npm run build
    - `pi.extensions` includes `./src/extension/index.ts`
 4. confirm runbook and plan-control docs still exist
 
+### If routed interactive dispatch halts before repo work starts
+
+1. confirm the runtime phase still has a deterministic route in `src/autopilot/protocol.ts`
+2. confirm `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/.../SKILL.md` exists and is non-empty for the current skill-bound phase
+3. confirm selected tools still include `autopilot_report`, and include `read` for skill-bound phases
+4. if local mode is active, confirm `docs/plan/README.md` and the active pack still parse as the single repo-local control plane
+
+### If `autopilot_report` validation fails
+
+1. compare the reported `phase` with the current runtime phase
+2. compare `stepId` with the active slice in `docs/plan/README.md` and the active pack `STATUS / WORKSET`
+3. compare `doneWhenMet / stopBoundaryHit` with the exact `done_when / stop_boundary` items in the active slice
+4. rerun bounded control-plane checks before retrying:
+   - `plan_sync`
+   - `workspace_scan`
+5. do **not** bypass the failure by downgrading to prose-only completion claims
+
 ### If BB substrate behavior is degraded
 
 1. run `node dist/sdk/orchestrator.js --doctor` first to verify local package/build shape
 2. then use existing repo validations and bounded live smoke from the active pack context
 3. do **not** invent local truth to compensate for missing BB-owned surfaces
+4. keep repo-local `docs/plan/*` truthful, but do not promote it into BB-owned canonical truth
 
 ## Notes
 

@@ -126,6 +126,8 @@ export interface WorksetActiveStageSnapshot {
   priority: string;
   objectives: string[];
   requiredDeliverables: string[];
+  doneWhen?: string[] | undefined;
+  stopBoundary?: string[] | undefined;
   avoid: string[];
 }
 

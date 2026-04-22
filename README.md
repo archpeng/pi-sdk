@@ -31,12 +31,14 @@
 
 Interactive driver 当前已具备：
 
-- 同一 Pi session 内 phase dispatch
-- repo-local active control plane 读取
+- 同一 Pi session 内 same-session phase dispatch
+- deterministic `phase -> skill/prompt surface` binding：`master_plan / wave_plan / replan -> plan-creator`、`execute -> execute-plan`、`review -> execution-reality-audit`、`closeout -> repo-local closeout prompt surface`
+- routed dispatch 会在发给模型前预加载对应 `SKILL.md`，而不是只在 prose 里暗示“可以用某个 skill”
+- repo-local active control plane 读取，且 machine truth 固定单根在 `docs/plan/*`（不再宣称 dual-root `docs/active/* + docs/plan/*`）
 - `autopilot_report` 驱动的自动续跑
-- active-slice-aware report validation
-- Pi 0.68 tool allowlist fail-fast（尤其是 `autopilot_report` 缺失时的 command-side + before-agent-start guard）
-- deterministic `README / STATUS / WORKSET` writeback
+- active-slice-aware report validation，包括 `phase` / `stepId`、`doneWhenMet` / `stopBoundaryHit`、以及未知 stop-law item 的 fail-fast
+- Pi 0.68 tool allowlist fail-fast（尤其是 `autopilot_report` 缺失时的 command-side + before-agent-start guard；skill-bound phases 还要求 `read`）
+- deterministic `README / STATUS / WORKSET` writeback，以及 accepted slice completion 后的 next-slice advancement
 - pause / resume / stop 语义
 - session-branch aware runtime-state reconstruction
 - reason-aware session replacement / fork handoff cleanup (`session_shutdown.reason` / `targetSessionFile`)
@@ -167,15 +169,35 @@ pi install /home/peng/dt-git/github/pi-sdk
 ### Interactive 行为要点
 
 - 当前 session 就是执行现场
-- extension 使用 `sendUserMessage()` 在同一 session 内推进 phase
-- 不再把 interactive path 建立在隐藏第二个 `AgentSession` 上
+- extension 使用 `sendUserMessage()` 在同一 session 内推进 phase；interactive path 不再建立在隐藏第二个 `AgentSession` 上
+- interactive dispatch 发出的不是裸 phase prompt，而是 `[AUTOPILOT ROUTED DISPATCH]` user message：其中会声明当前 phase 的 deterministic route，并在 skill-bound phase 中预加载对应 `SKILL.md`
+- `closeout` 明确绑定到 repo-local closeout prompt surface，而不是额外发明一个 global closeout skill
 - `autopilot_report` 仍是 machine-consumable phase contract
+- execute / review 的 progression 不再只看请求的 `status`，而会根据 active slice `done_when / stop_boundary` 推导 `doneWhenMet / stopBoundaryHit`
 - runtime state 会通过 `pi.appendEntry("autopilot-runtime-state", ...)` 持久化，供 reload / tree navigation / resume 重建
 - status/widget 会显式暴露 substrate mode、degraded yes/no、warning summary
 - 当 `bb` substrate 的 `memory_autopilot_status` 可达时，status/widget/overlay 会投影 objective key 与 promotion-readiness summary
 - 当 `bb` substrate 的 decision-authority current/detail resources 与 reconcile-plan tool 可达时，status/overlay/closeout/hydration 会进一步投影 bounded decision-authority summary 与 `dry_run manual_reconcile` visibility
 - 当 `bb` substrate 的 recent canary / strategy report resources 可达时，status/overlay/closeout/hydration 会进一步投影 bounded history-summary
 - `/autopilot-status overlay` 会在当前 Pi UI 内打开 bounded inspector overlay，而不是新建第二个 UI/runtime
+
+## Deterministic routed phase contract
+
+interactive runtime 现在固定使用以下 route matrix：
+
+- `master_plan` -> skill `plan-creator`
+- `wave_plan` -> skill `plan-creator`
+- `execute` -> skill `execute-plan`
+- `review` -> skill `execution-reality-audit`
+- `replan` -> skill `plan-creator`
+- `closeout` -> built-in repo-local closeout prompt surface
+
+这条 contract 不是“模型最好这样做”，而是 extension runtime 的 hard binding：
+
+- skill-bound phase 必须能解析到 routed `SKILL.md`，且文件不能为空
+- `selectedTools` 必须包含 `autopilot_report`；skill-bound phase 还必须包含 `read`
+- route 缺失、route/phase 不匹配、skill 文件缺失/为空、wrong `autopilot_report.phase`、wrong `stepId`、未知 `doneWhenMet / stopBoundaryHit` item 都会 fail-fast
+- repo-local machine control plane 固定单根在 `docs/plan/*`
 
 ## 作为 CLI / headless driver 使用
 
@@ -247,25 +269,41 @@ Readiness / packaging mode：
 - `replan`
 - `closeout`
 
-每个 phase 结束前必须 **恰好调用一次** `autopilot_report`，并回传：
+但是 interactive runtime 现在不只要求“有一个 report”，而是要求完整的 routed + stop-law contract：
+
+1. 每个 phase 结束前必须 **恰好调用一次** `autopilot_report`
+2. `autopilot_report.phase` 必须匹配当前 runtime phase
+3. 当存在 active slice 时，`autopilot_report.stepId` 必须匹配当前 slice
+4. execute / review 会把 active slice 的 `done_when / stop_boundary` surface 进 prompt，并用 `doneWhenMet / stopBoundaryHit` 派生 honest progression
+5. local writeback 只把 `docs/plan/*` 当成 repo-local machine truth
+
+`autopilot_report` 当前核心字段包括：
 
 - `phase`
 - `status`
 - `summary`
+- `waveId`
+- `stepId`
 - `nextAction`
+- `decisionMode`
+- `decisionBasis[]`
+- `candidateRoutes[]`
+- `doneWhenMet[]`
+- `stopBoundaryHit[]`
 - `evidence[]`
 - `artifacts[]`
 - `risks[]`
 
-这仍然是 `pi-sdk` 的核心 machine-consumable contract。
+这仍然是 `pi-sdk` 的核心 machine-consumable contract；`status` 只是其中一部分，真正的 execute/review progression 还依赖 stop-law fields。
 
 ## Substrate 行为边界
 
 ### `local`
 
 - 不做外部 `BB` memory / govern / autopilot truth 调用
-- 会读取 repo-local `docs/plan` control plane
-- 会在 local mode 下执行 deterministic `README / STATUS / WORKSET` writeback
+- 会读取 repo-local `docs/plan/*` control plane，并把它当成唯一 machine truth
+- 会在 local mode 下执行 deterministic `README / STATUS / WORKSET` writeback；accepted slice completion 会推进 next active slice 或 `PACK_COMPLETE`
+- 不再宣称 dual-root `docs/active/* + docs/plan/*` mirroring
 - 会做本地 git workspace scan，用于 control-plane-aware dirty-repo guard（允许 control-plane-only dirty，阻断 foreign dirty）
 - interactive 与 CLI/headless 都可继续最小可运行
 

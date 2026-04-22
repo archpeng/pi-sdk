@@ -25,7 +25,10 @@ interface CommandHandlerDependencies extends CommandHandlerRuntimeAccess {
   persistRuntime(pi: ExtensionAPI, runtime: AutopilotRuntimeState | null): void;
   updateUi(ctx: ExtensionContext, runtime: AutopilotRuntimeState | null): void;
   notify(ctx: ExtensionContext, message: string, kind?: "info" | "warning" | "error"): void;
-  preflightAutopilotCommand(ctx: ExtensionCommandContext): { ok: true } | { ok: false; reason: string };
+  preflightAutopilotCommand(
+    ctx: ExtensionCommandContext,
+    phase: AutopilotRuntimeState["phase"],
+  ): { ok: true } | { ok: false; reason: string };
   dispatchCurrentPhase(ctx: ExtensionContext): Promise<void>;
   showStatusOverlay(
     ctx: ExtensionCommandContext,
@@ -49,7 +52,7 @@ export function registerAutopilotCommands(deps: CommandHandlerDependencies): voi
         return;
       }
 
-      const preflight = deps.preflightAutopilotCommand(ctx);
+      const preflight = deps.preflightAutopilotCommand(ctx, "master_plan");
       if (!preflight.ok) {
         deps.notify(ctx, preflight.reason, "warning");
         return;
@@ -102,7 +105,7 @@ export function registerAutopilotCommands(deps: CommandHandlerDependencies): voi
         return;
       }
 
-      const preflight = deps.preflightAutopilotCommand(ctx);
+      const preflight = deps.preflightAutopilotCommand(ctx, runtime.phase);
       if (!preflight.ok) {
         deps.notify(ctx, preflight.reason, "warning");
         return;

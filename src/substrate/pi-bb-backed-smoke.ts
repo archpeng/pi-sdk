@@ -35,6 +35,24 @@ export interface RunPiBbBackedSmokeInput {
   cleanup?: boolean;
 }
 
+function seedStubSkills(agentDir: string): void {
+  const skills: Array<{ name: string; summary: string }> = [
+    { name: "plan-creator", summary: "Stub routed skill for BB-backed smoke planning phases." },
+    { name: "execute-plan", summary: "Stub routed skill for BB-backed smoke execute phase." },
+    { name: "execution-reality-audit", summary: "Stub routed skill for BB-backed smoke review phase." },
+  ];
+
+  for (const skill of skills) {
+    const skillDir = path.join(agentDir, "skills", skill.name);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      `# ${skill.name}\n\n${skill.summary}\n`,
+      "utf8",
+    );
+  }
+}
+
 function createToolResult(id: string | number | undefined, payload: unknown): string {
   return JSON.stringify({
     jsonrpc: "2.0",
@@ -408,6 +426,7 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
   mkdirSync(path.join(projectRoot, ".pi"), { recursive: true });
   mkdirSync(agentDir, { recursive: true });
   mkdirSync(sessionDir, { recursive: true });
+  seedStubSkills(agentDir);
   writeFileSync(path.join(projectRoot, ".pi", "settings.json"), `${JSON.stringify({ packages: [packageRoot] }, null, 2)}\n`);
 
   const providerServer = http.createServer((req, res) => {

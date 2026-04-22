@@ -70,6 +70,8 @@ flowchart TD
 固定原则：
 
 - 当前 Pi session 是 interactive path 的执行现场
+- interactive runtime 使用 deterministic routed dispatch，而不是把 phase -> skill 绑定留给模型自由发挥
+- repo-local machine control plane 固定单根在 `docs/plan/*`
 - CLI 仍保留，但不再是主产品面
 - `BB` 继续负责 remember / judge / learn / audit
 - 不靠解析 assistant prose 猜 phase completion
@@ -125,28 +127,38 @@ flowchart TD
 
 ### 4.2 Phase execution loop
 
-对于每个 phase：
+对于 interactive runtime 的每个 phase：
 
-1. orchestrator 通过 substrate 做最小 pre-phase hydration：
-   - memory recall
-   - 必要时 workspace / plan summary
-   - execute phase 的 governance policy summary
-2. `buildPhasePrompt(phase, context)` 生成 prompt
-3. `session.prompt(prompt)` 触发 agent 执行
-4. agent 使用 Pi 内建工具：
+1. extension / substrate 先收敛当前 repo-local truth：
+   - `workspace_scan`
+   - `plan_sync`
+   - local `docs/plan/*` snapshot
+   - 必要时 memory / govern hydration
+2. `buildInteractivePrompt(...)` 生成 phase prompt，并解析 deterministic phase route
+3. route 若是 skill-bound：
+   - 解析 `${PI_CODING_AGENT_DIR}/skills/.../SKILL.md`
+   - skill 文件缺失或为空会直接 hard-stop
+4. extension 生成 `[AUTOPILOT ROUTED DISPATCH]` user message：
+   - 显式声明 `phase -> skill/prompt surface`
+   - skill-bound phase 预加载 `SKILL.md`
+   - closeout phase 绑定 repo-local closeout prompt surface
+5. extension 用 `sendUserMessage(built.userMessage)` 在**同一 Pi session**内继续 phase
+6. `before_agent_start` 先做 selected-tools preflight：
+   - 所有 autopilot phase 都要求 `autopilot_report`
+   - skill-bound phase 额外要求 `read`
+7. agent 使用 Pi 内建工具：
    - `read`
    - `bash`
    - `edit`
    - `write`
-5. execute phase 中的高风险 tool call 会先经过 extension 的 governance preflight hook
-6. phase 结束前，模型必须调用一次 `autopilot_report`
-7. extension 返回结构化 `details.report`
-8. orchestrator 通过 `tool_execution_end` 事件捕获该 report
-9. `runPhase()` 校验：
-   - 本轮必须恰好有一个 `autopilot_report`
-10. orchestrator 把 raw phase evidence 写回 substrate memory
-   - report.phase 必须匹配当前 phase
-8. orchestrator 根据 `status` 决定下一步
+8. execute phase 中的高风险 tool call 会先经过 extension 的 governance preflight hook
+9. phase 结束前，模型必须调用一次 `autopilot_report`
+10. extension 校验 report：
+    - `phase` 必须匹配当前 runtime phase
+    - 当 active slice 存在时，`stepId` 必须匹配当前 slice
+    - `doneWhenMet` / `stopBoundaryHit` 必须精确匹配 active slice stop law item
+11. execute / review 的 progression 由 stop-law resolver 推导，而不是只信任原始 `status`
+12. local mode 下，accepted `completed` / `done` report 会推进单根 `docs/plan/*` writeback，并把 next active slice 更新到下一个 stage 或 `PACK_COMPLETE`
 
 ### 4.3 Output surfaces
 
@@ -162,11 +174,19 @@ flowchart TD
 
 ### 4.4 Core contract
 
-当前 outer loop 依赖的唯一硬协议是：
+当前 outer loop 的硬协议现在有三层：
 
-- 每个 phase 必须 **恰好一次** `autopilot_report`
+1. 每个 phase 必须 **恰好一次** `autopilot_report`
+2. 当前 phase 必须走 deterministic routed surface，而不是 generic fallback prompt
+3. execute / review 必须通过 active slice `done_when / stop_boundary` 解释 progression
 
-这比“从自然语言里猜完成度”更稳，但也意味着当前系统对协议遵守有较强依赖。
+因此当前系统不再只是“有 report 即可”，而是要求：
+
+- route 正确
+- skill / prompt surface 正确
+- report phase / stepId 正确
+- stop-law fields 正确
+- local writeback 仍落在单根 `docs/plan/*`
 
 ---
 
@@ -204,17 +224,50 @@ flowchart TD
 - `waveId`
 - `stepId`
 - `nextAction`
+- `decisionMode`
+- `decisionBasis[]`
+- `candidateRoutes[]`
+- `doneWhenMet[]`
+- `stopBoundaryHit[]`
 - `evidence[]`
 - `artifacts[]`
 - `risks[]`
 - `timestampMs`
 
-### 5.4 Why this protocol exists
+其中：
+
+- `decisionMode / decisionBasis / candidateRoutes` 让 replan / review / route choice 可审计
+- `doneWhenMet / stopBoundaryHit` 把 active slice 的 `done_when / stop_boundary` 从 prose 提升为 runtime-consumable gate
+- execute / review 的最终 progression 由 stop-law resolver 派生，而不是只使用请求侧 `status`
+
+### 5.4 Deterministic routed dispatch and stop law
+
+interactive runtime 当前固定 route matrix：
+
+- `master_plan` -> `plan-creator`
+- `wave_plan` -> `plan-creator`
+- `execute` -> `execute-plan`
+- `review` -> `execution-reality-audit`
+- `replan` -> `plan-creator`
+- `closeout` -> built-in repo-local closeout prompt surface
+
+fail-fast law 当前覆盖：
+
+- deterministic route missing
+- deterministic route phase mismatch
+- missing or blank routed `SKILL.md`
+- selected tools missing `autopilot_report`
+- skill-bound phases missing `read`
+- `autopilot_report.phase` mismatch
+- `autopilot_report.stepId` mismatch
+- unknown `doneWhenMet` / `stopBoundaryHit` items
+
+### 5.5 Why this protocol exists
 
 这个协议的作用是：
 
 - 让模型输出 **machine-consumable phase result**
-- 让 orchestrator 依赖 schema，而不是依赖 prose interpretation
+- 让 orchestrator 依赖 schema + route binding + stop law，而不是依赖 prose interpretation
 - 给未来的：
   - persistence
   - analytics
@@ -353,8 +406,9 @@ stateDiagram-v2
 
 当前仓库已经有：
 
-- `docs/plan/...`
+- 单根 `docs/plan/*`
 - active `PLAN / STATUS / WORKSET`
+- parser-compatible `README / STATUS / WORKSET` writeback
 
 但它仍然只是 repo-local control plane，不是 server-owned canonical run/workset head。
 

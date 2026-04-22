@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import path from "node:path";
 
 export const AUTOPILOT_REPORT_TOOL_NAME = "autopilot_report";
 export const AUTOPILOT_RUN_COMMAND = "autopilot-run";
@@ -44,6 +46,153 @@ export type AutopilotStatus = (typeof AUTOPILOT_STATUSES)[number];
 export type SupportedThinkingLevel = (typeof THINKING_LEVELS)[number];
 export type AutopilotDecisionMode = "standard" | "goal_directed";
 
+export const AUTOPILOT_CLOSEOUT_PROMPT_SURFACE = "autopilot-closeout";
+
+export interface AutopilotSkillPhaseRoute {
+  phase: AutopilotPhase;
+  surface: "skill";
+  dispatchEncoding: "read_skill_file";
+  skillName: "plan-creator" | "execute-plan" | "execution-reality-audit";
+  skillPath: string;
+  requiredTools: string[];
+  summary: string;
+}
+
+export interface AutopilotPromptPhaseRoute {
+  phase: AutopilotPhase;
+  surface: "prompt";
+  dispatchEncoding: "built_in_prompt";
+  promptSurface: typeof AUTOPILOT_CLOSEOUT_PROMPT_SURFACE;
+  requiredTools: string[];
+  summary: string;
+}
+
+export type AutopilotPhaseRoute = AutopilotSkillPhaseRoute | AutopilotPromptPhaseRoute;
+
+function buildSkillPhaseRoute(
+  phase: AutopilotPhase,
+  skillName: AutopilotSkillPhaseRoute["skillName"],
+  summary: string,
+  agentDir: string,
+): AutopilotSkillPhaseRoute {
+  return {
+    phase,
+    surface: "skill",
+    dispatchEncoding: "read_skill_file",
+    skillName,
+    skillPath: path.join(agentDir, "skills", skillName, "SKILL.md"),
+    requiredTools: ["read", AUTOPILOT_REPORT_TOOL_NAME],
+    summary,
+  };
+}
+
+function buildPromptPhaseRoute(
+  phase: "closeout",
+  summary: string,
+): AutopilotPromptPhaseRoute {
+  return {
+    phase,
+    surface: "prompt",
+    dispatchEncoding: "built_in_prompt",
+    promptSurface: AUTOPILOT_CLOSEOUT_PROMPT_SURFACE,
+    requiredTools: [AUTOPILOT_REPORT_TOOL_NAME],
+    summary,
+  };
+}
+
+export function resolveAutopilotAgentDir(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.PI_CODING_AGENT_DIR?.trim();
+  return configured ? configured : path.join(homedir(), ".pi", "agent");
+}
+
+export function getAutopilotPhaseRouteMatrix(options?: {
+  agentDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): Record<AutopilotPhase, AutopilotPhaseRoute> {
+  const agentDir = options?.agentDir ?? resolveAutopilotAgentDir(options?.env);
+  return {
+    master_plan: buildSkillPhaseRoute("master_plan", "plan-creator", "plan the full workstream", agentDir),
+    wave_plan: buildSkillPhaseRoute("wave_plan", "plan-creator", "plan the current wave", agentDir),
+    execute: buildSkillPhaseRoute("execute", "execute-plan", "execute the current slice", agentDir),
+    review: buildSkillPhaseRoute("review", "execution-reality-audit", "review the executed slice", agentDir),
+    replan: buildSkillPhaseRoute("replan", "plan-creator", "replan the current wave or roadmap", agentDir),
+    closeout: buildPromptPhaseRoute("closeout", "use the built-in repo-local closeout surface"),
+  };
+}
+
+export function resolveAutopilotPhaseRoute(
+  phase: AutopilotPhase,
+  options?: {
+    routeMatrix?: Partial<Record<AutopilotPhase, AutopilotPhaseRoute>>;
+    agentDir?: string;
+    env?: NodeJS.ProcessEnv;
+  },
+): AutopilotPhaseRoute {
+  const routeMatrix = options?.routeMatrix ?? getAutopilotPhaseRouteMatrix({
+    ...(options?.agentDir ? { agentDir: options.agentDir } : {}),
+    ...(options?.env ? { env: options.env } : {}),
+  });
+  const route = routeMatrix[phase];
+  if (!route) {
+    throw new Error(`deterministic autopilot phase route missing for ${phase}`);
+  }
+  if (route.phase !== phase) {
+    throw new Error(`deterministic autopilot phase route mismatch: requested ${phase} but route encodes ${route.phase}`);
+  }
+  if (route.surface === "skill") {
+    if (!route.skillName.trim()) {
+      throw new Error(`deterministic autopilot phase route missing skill name for ${phase}`);
+    }
+    if (!route.skillPath.trim()) {
+      throw new Error(`deterministic autopilot phase route missing skill path for ${phase}`);
+    }
+  } else if (!route.promptSurface.trim()) {
+    throw new Error(`deterministic autopilot phase route missing prompt surface for ${phase}`);
+  }
+  return route;
+}
+
+export function formatAutopilotPhaseRoutingMatrixLines(options?: {
+  agentDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): string[] {
+  const routeMatrix = getAutopilotPhaseRouteMatrix(options);
+  return AUTOPILOT_PHASES.map((phase) => {
+    const route = resolveAutopilotPhaseRoute(phase, { routeMatrix });
+    return route.surface === "skill"
+      ? `- \`${phase}\` -> skill \`${route.skillName}\``
+      : `- \`${phase}\` -> built-in closeout prompt surface`;
+  });
+}
+
+export function formatAutopilotCurrentPhaseRouteLines(route: AutopilotPhaseRoute): string[] {
+  if (route.surface === "skill") {
+    return [
+      `- Deterministic route: \`${route.phase}\` -> skill \`${route.skillName}\`.`,
+      `- Before any other repo work, use \`read\` on \`${route.skillPath}\`.`,
+      "- Treat that skill as the governing instructions for this phase.",
+      "- Do not substitute another skill or rely on implicit model recall.",
+    ];
+  }
+
+  return [
+    `- Deterministic route: \`${route.phase}\` -> built-in closeout prompt surface.`,
+    "- Use the repo-local closeout prompt in this phase; do not assume a separate global closeout skill.",
+    "- Do not substitute another skill or rely on implicit model recall.",
+  ];
+}
+
+export function getRequiredToolNamesForAutopilotPhase(
+  phase: AutopilotPhase,
+  options?: {
+    agentDir?: string;
+    env?: NodeJS.ProcessEnv;
+  },
+): string[] {
+  const route = resolveAutopilotPhaseRoute(phase, options);
+  return [...new Set(route.requiredTools)];
+}
+
 export interface AutopilotReport {
   phase: AutopilotPhase;
   status: AutopilotStatus;
@@ -54,6 +203,8 @@ export interface AutopilotReport {
   decisionMode?: AutopilotDecisionMode | undefined;
   decisionBasis?: string[] | undefined;
   candidateRoutes?: string[] | undefined;
+  doneWhenMet?: string[] | undefined;
+  stopBoundaryHit?: string[] | undefined;
   evidence: string[];
   artifacts: string[];
   risks: string[];
@@ -121,6 +272,8 @@ export interface AutopilotPromptContext {
   recentReports: AutopilotReport[];
   activeSlice?: AutopilotActiveSlice | undefined;
   substrateContext?: string[] | undefined;
+  phaseRoute?: AutopilotPhaseRoute | undefined;
+  phaseRoutingMatrix?: string[] | undefined;
 }
 
 export interface AutopilotActiveSlice {
@@ -129,6 +282,8 @@ export interface AutopilotActiveSlice {
   state: string;
   objectives: string[];
   requiredDeliverables: string[];
+  doneWhen?: string[] | undefined;
+  stopBoundary?: string[] | undefined;
   avoid: string[];
 }
 
@@ -195,6 +350,8 @@ export function isAutopilotReport(value: unknown): value is AutopilotReport {
     (candidate.decisionMode === undefined || candidate.decisionMode === "standard" || candidate.decisionMode === "goal_directed") &&
     (candidate.decisionBasis === undefined || Array.isArray(candidate.decisionBasis)) &&
     (candidate.candidateRoutes === undefined || Array.isArray(candidate.candidateRoutes)) &&
+    (candidate.doneWhenMet === undefined || Array.isArray(candidate.doneWhenMet)) &&
+    (candidate.stopBoundaryHit === undefined || Array.isArray(candidate.stopBoundaryHit)) &&
     Array.isArray(candidate.evidence) &&
     Array.isArray(candidate.artifacts) &&
     Array.isArray(candidate.risks) &&
@@ -273,6 +430,57 @@ export function deriveAutopilotObjectiveKey(goal: string, cwd: string): string {
   return `objective:${createHash("sha1").update(`${cwd}\u0000${goal}`).digest("hex").slice(0, 12)}`;
 }
 
+function normalizeStopLawItems(items: string[] | undefined): string[] {
+  return [...new Set((items ?? []).map((item) => item.trim()).filter((item) => item.length > 0))];
+}
+
+export interface AutopilotReportStopLawResolution {
+  usesStopLaw: boolean;
+  doneWhen: string[];
+  stopBoundary: string[];
+  doneWhenMet: string[];
+  stopBoundaryHit: string[];
+  missingDoneWhen: string[];
+  unexpectedDoneWhenMet: string[];
+  unexpectedStopBoundaryHit: string[];
+  derivedStatus: AutopilotStatus;
+}
+
+export function resolveAutopilotReportStopLaw(
+  activeSlice: Pick<AutopilotActiveSlice, "doneWhen" | "stopBoundary"> | undefined,
+  report: Pick<AutopilotReport, "status" | "doneWhenMet" | "stopBoundaryHit">,
+): AutopilotReportStopLawResolution {
+  const doneWhen = normalizeStopLawItems(activeSlice?.doneWhen);
+  const stopBoundary = normalizeStopLawItems(activeSlice?.stopBoundary);
+  const doneWhenMet = normalizeStopLawItems(report.doneWhenMet);
+  const stopBoundaryHit = normalizeStopLawItems(report.stopBoundaryHit);
+  const missingDoneWhen = doneWhen.filter((item) => !doneWhenMet.includes(item));
+  const unexpectedDoneWhenMet = doneWhenMet.filter((item) => !doneWhen.includes(item));
+  const unexpectedStopBoundaryHit = stopBoundaryHit.filter((item) => !stopBoundary.includes(item));
+  const usesStopLaw = doneWhen.length > 0 || stopBoundary.length > 0;
+
+  let derivedStatus = report.status;
+  if (usesStopLaw && report.status !== "blocked" && report.status !== "failed") {
+    if (stopBoundaryHit.length > 0) {
+      derivedStatus = "needs_replan";
+    } else if (doneWhen.length > 0) {
+      derivedStatus = missingDoneWhen.length === 0 ? (report.status === "done" ? "done" : "completed") : "continue";
+    }
+  }
+
+  return {
+    usesStopLaw,
+    doneWhen,
+    stopBoundary,
+    doneWhenMet,
+    stopBoundaryHit,
+    missingDoneWhen,
+    unexpectedDoneWhenMet,
+    unexpectedStopBoundaryHit,
+    derivedStatus,
+  };
+}
+
 export function formatAutopilotReport(report: AutopilotReport): string {
   const lines = [
     `phase: ${report.phase}`,
@@ -283,6 +491,8 @@ export function formatAutopilotReport(report: AutopilotReport): string {
   ];
 
   if (report.nextAction) lines.push(`nextAction: ${report.nextAction}`);
+  if ((report.doneWhenMet ?? []).length > 0) lines.push(`doneWhenMet: ${(report.doneWhenMet ?? []).join(" | ")}`);
+  if ((report.stopBoundaryHit ?? []).length > 0) lines.push(`stopBoundaryHit: ${(report.stopBoundaryHit ?? []).join(" | ")}`);
   if (report.evidence.length > 0) lines.push(`evidence: ${report.evidence.join(" | ")}`);
   if (report.artifacts.length > 0) lines.push(`artifacts: ${report.artifacts.join(" | ")}`);
   if (report.risks.length > 0) lines.push(`risks: ${report.risks.join(" | ")}`);

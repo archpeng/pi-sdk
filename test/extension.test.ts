@@ -1,6 +1,13 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import test from "node:test";
 import assert from "node:assert/strict";
 import autopilotExtension from "../src/extension/index.ts";
+import {
+  buildAutopilotPhaseDispatchMessage,
+  resolveAutopilotPhaseDispatch,
+} from "../src/extension/runtime-dispatch.ts";
 import type { AutopilotSubstrate, WorkspaceScanEntry } from "../src/substrate/index.ts";
 import { setRuntimeSubstrate } from "../src/substrate/index.ts";
 
@@ -91,6 +98,16 @@ function createFakeContext(overrides: Partial<any> = {}) {
   };
 }
 
+function createTempAgentDir(skillFiles: Record<string, string>): string {
+  const agentDir = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-agent-dir-"));
+  for (const [skillName, contents] of Object.entries(skillFiles)) {
+    const skillDir = path.join(agentDir, "skills", skillName);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(path.join(skillDir, "SKILL.md"), contents, "utf8");
+  }
+  return agentDir;
+}
+
 function createFakeSubstrate(cwd: string): AutopilotSubstrate {
   return {
     mode: "bb",
@@ -166,6 +183,8 @@ function createFakeSubstrate(cwd: string): AutopilotSubstrate {
               priority: "highest",
               objectives: ["make reports active-slice-aware"],
               requiredDeliverables: ["active-slice-aware report validation"],
+              doneWhen: ["active-slice-aware report validation"],
+              stopBoundary: ["wrong-slice progression remains after execution"],
               avoid: ["wrong-slice progression"],
             },
             stageOrder: ["B1", "B2", "B3", "C1", "C2", "C3"],
@@ -177,6 +196,8 @@ function createFakeSubstrate(cwd: string): AutopilotSubstrate {
                 priority: "highest",
                 objectives: ["make reports active-slice-aware"],
                 requiredDeliverables: ["active-slice-aware report validation"],
+                doneWhen: ["active-slice-aware report validation"],
+                stopBoundary: ["wrong-slice progression remains after execution"],
                 avoid: ["wrong-slice progression"],
               },
               B2: {
@@ -186,6 +207,8 @@ function createFakeSubstrate(cwd: string): AutopilotSubstrate {
                 priority: "highest",
                 objectives: ["bind prompt completion to active slice deliverables"],
                 requiredDeliverables: ["active slice deliverable contract"],
+                doneWhen: ["active slice deliverable contract"],
+                stopBoundary: ["prompt-only completion drift remains"],
                 avoid: ["prompt-only completion drift"],
               },
               B3: {
@@ -195,6 +218,8 @@ function createFakeSubstrate(cwd: string): AutopilotSubstrate {
                 priority: "highest",
                 objectives: ["align runtime stop law with slice truth"],
                 requiredDeliverables: ["wrong-slice hard stop"],
+                doneWhen: ["wrong-slice hard stop"],
+                stopBoundary: ["soft mismatch fallback remains"],
                 avoid: ["soft mismatch fallback"],
               },
               C1: {
@@ -561,6 +586,78 @@ test("/autopilot-run queues the first phase prompt in the current session", asyn
   }
 });
 
+test("resolveAutopilotPhaseDispatch rejects a missing deterministic route mapping", () => {
+  assert.throws(
+    () =>
+      resolveAutopilotPhaseDispatch("execute", {
+        routeMatrix: {},
+      }),
+    /route missing/i,
+  );
+});
+
+test("/autopilot-run injects the routed skill file into the dispatched user message", async () => {
+  const { pi, commands, sentUserMessages } = createFakePi();
+  const ctx = createFakeContext();
+  const agentDir = createTempAgentDir({
+    "plan-creator": "# Plan Creator\n\n- Plan deterministically.\n",
+  });
+  const priorAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+
+    const dispatched = String(sentUserMessages[0]?.content);
+    assert.match(dispatched, /\[AUTOPILOT ROUTED DISPATCH\]/);
+    assert.match(dispatched, /Bound surface: skill `plan-creator`/);
+    assert.match(dispatched, /# Plan Creator/);
+    assert.match(dispatched, /Phase-specific autopilot prompt:/);
+    assert.match(dispatched, /Objective: land the Pi-native autopilot/);
+  } finally {
+    if (priorAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = priorAgentDir;
+    }
+    rmSync(agentDir, { recursive: true, force: true });
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("buildAutopilotPhaseDispatchMessage preloads resolved skill contents into the routed dispatch", () => {
+  const agentDir = createTempAgentDir({
+    "execute-plan": "# Execute Plan\n\n- Ship the current slice.\n",
+  });
+
+  try {
+    const skillPath = path.join(agentDir, "skills", "execute-plan", "SKILL.md");
+    const dispatch = resolveAutopilotPhaseDispatch("execute", {
+      routeMatrix: {
+        execute: {
+          phase: "execute",
+          surface: "skill",
+          dispatchEncoding: "read_skill_file",
+          skillName: "execute-plan",
+          skillPath,
+          requiredTools: ["read", "autopilot_report"],
+          summary: "execute the current slice",
+        },
+      },
+    });
+
+    const routed = buildAutopilotPhaseDispatchMessage("Execute the current wave.", dispatch);
+
+    assert.match(routed, /Bound surface: skill `execute-plan`/);
+    assert.match(routed, /# Execute Plan/);
+    assert.match(routed, /Execute the current wave\./);
+  } finally {
+    rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
 test("/autopilot-run fails fast when the current tool allowlist omits autopilot_report", async () => {
   const { pi, commands, sentUserMessages } = createFakePi();
   const ctx = createFakeContext({
@@ -578,6 +675,53 @@ test("/autopilot-run fails fast when the current tool allowlist omits autopilot_
     assert.match(ctx.notifications.at(-1)?.message ?? "", /autopilot_report/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /--no-tools|--tools/);
   } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("/autopilot-run fails fast when the current tool allowlist omits read for a skill-bound phase", async () => {
+  const { pi, commands, sentUserMessages } = createFakePi();
+  const ctx = createFakeContext({
+    getSystemPrompt() {
+      return "Active tools: bash edit write autopilot_report";
+    },
+  });
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+
+    assert.equal(sentUserMessages.length, 0);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /read/);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /master_plan/);
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+
+test("/autopilot-run halts when the deterministic phase route skill file is missing", async () => {
+  const { pi, commands, sentUserMessages, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  const priorAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = path.join(os.tmpdir(), `pi-sdk-missing-agent-dir-${Date.now()}`);
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+
+    assert.equal(sentUserMessages.length, 0);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /plan-creator\/SKILL\.md/);
+    const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
+    assert.equal(latestRuntime?.mode, "closed");
+  } finally {
+    if (priorAgentDir === undefined) {
+      delete process.env.PI_CODING_AGENT_DIR;
+    } else {
+      process.env.PI_CODING_AGENT_DIR = priorAgentDir;
+    }
     setRuntimeSubstrate(undefined);
   }
 });
@@ -905,6 +1049,34 @@ test("local edit/write tool calls register best-effort autopilot-owned paths", a
   }
 });
 
+test("autopilot_report rejects a phase that does not match the current runtime phase", async () => {
+  const { pi, commands, tools, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+
+    await assert.rejects(
+      () =>
+        tool.execute?.("tool-call-1", {
+          phase: "review",
+          status: "continue",
+          summary: "wrong phase report",
+          stepId: "B1",
+        }),
+      /current runtime phase/i,
+    );
+    const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
+    assert.equal(latestRuntime?.mode, "closed");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
 test("autopilot_report rejects a stepId that does not match the active slice truth", async () => {
   const { pi, commands, tools, appendedEntries } = createFakePi();
   const ctx = createFakeContext();
@@ -925,6 +1097,171 @@ test("autopilot_report rejects a stepId that does not match the active slice tru
           stepId: "WRONG",
         }),
       /active slice/i,
+    );
+    const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
+    assert.equal(latestRuntime?.mode, "closed");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("autopilot_report in execute phase derives status from active-slice done_when / stop_boundary", async () => {
+  const { pi, handlers, commands, tools } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "master_plan",
+            status: "continue",
+            summary: "master plan frozen",
+            evidence: [],
+            artifacts: [],
+            risks: [],
+            timestampMs: 1,
+          },
+          historySize: 1,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "wave_plan",
+            status: "continue",
+            summary: "wave plan frozen",
+            stepId: "B1",
+            evidence: [],
+            artifacts: [],
+            risks: [],
+            timestampMs: 2,
+          },
+          historySize: 2,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+
+    const incomplete = await tool.execute?.("tool-call-1", {
+      phase: "execute",
+      status: "completed",
+      summary: "implementation landed but stop law not yet evidenced",
+      stepId: "B1",
+      doneWhenMet: [],
+      evidence: ["edited runtime"],
+      artifacts: ["src/extension/index.ts"],
+    });
+    assert.equal(incomplete?.details?.report?.status, "continue");
+
+    const completed = await tool.execute?.("tool-call-2", {
+      phase: "execute",
+      status: "continue",
+      summary: "implementation and proof landed",
+      stepId: "B1",
+      doneWhenMet: ["active-slice-aware report validation"],
+      evidence: ["targeted tests passed"],
+      artifacts: ["test/extension.test.ts"],
+    });
+    assert.equal(completed?.details?.report?.status, "completed");
+
+    const replanned = await tool.execute?.("tool-call-3", {
+      phase: "execute",
+      status: "continue",
+      summary: "execution hit the active stop boundary",
+      stepId: "B1",
+      stopBoundaryHit: ["wrong-slice progression remains after execution"],
+      evidence: ["stop law triggered"],
+      artifacts: ["src/autopilot/phase-prompt.ts"],
+    });
+    assert.equal(replanned?.details?.report?.status, "needs_replan");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("autopilot_report rejects stop-law items that are not in the active slice contract", async () => {
+  const { pi, handlers, commands, tools, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "master_plan",
+            status: "continue",
+            summary: "master plan frozen",
+            evidence: [],
+            artifacts: [],
+            risks: [],
+            timestampMs: 1,
+          },
+          historySize: 1,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "wave_plan",
+            status: "continue",
+            summary: "wave plan frozen",
+            stepId: "B1",
+            evidence: [],
+            artifacts: [],
+            risks: [],
+            timestampMs: 2,
+          },
+          historySize: 2,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+
+    await assert.rejects(
+      () =>
+        tool.execute?.("tool-call-3", {
+          phase: "execute",
+          status: "completed",
+          summary: "claimed completion with a fake stop-law item",
+          stepId: "B1",
+          doneWhenMet: ["not part of the active slice"],
+        }),
+      /doneWhenMet must match active slice done_when items/i,
     );
     const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
     assert.equal(latestRuntime?.mode, "closed");
@@ -1037,6 +1374,45 @@ test("before_agent_start halts autopilot when selectedTools omit autopilot_repor
     assert.match(merged.message?.content ?? "", /autopilot_report/);
     assert.match(merged.systemPrompt ?? "", /required tools are missing/i);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /autopilot_report/);
+    const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
+    assert.equal(latestRuntime?.mode, "closed");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("before_agent_start halts autopilot when selectedTools omit read for a skill-bound phase", async () => {
+  const { pi, handlers, commands, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+
+    const results = [];
+    for (const handler of handlers.get("before_agent_start") ?? []) {
+      results.push(
+        await handler(
+          {
+            prompt: "continue",
+            images: [],
+            systemPrompt: "Base system prompt",
+            systemPromptOptions: {
+              selectedTools: ["bash", "edit", "write", "autopilot_report"],
+            },
+          },
+          ctx,
+        ),
+      );
+    }
+
+    const merged = results.find((value) => value && typeof value === "object") as { systemPrompt?: string; message?: { content?: string } } | undefined;
+    assert.ok(merged);
+    assert.match(merged.message?.content ?? "", /read/);
+    assert.match(merged.message?.content ?? "", /master_plan/);
+    assert.match(merged.systemPrompt ?? "", /required tools are missing/i);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /read/);
     const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
     assert.equal(latestRuntime?.mode, "closed");
   } finally {

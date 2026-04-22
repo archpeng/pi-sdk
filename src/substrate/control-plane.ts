@@ -79,7 +79,7 @@ function collectListItems(sectionBody: string, label: string): string[] {
     if (raw === undefined) break;
     const trimmed = raw.trim();
     if (!trimmed) continue;
-    if (/^[^#\-\d].*：$/.test(trimmed)) break;
+    if (/^[^#\-\d].*[:：]$/.test(trimmed)) break;
     if (/^###\s/.test(trimmed) || /^##\s/.test(trimmed)) break;
     if (trimmed.startsWith("- ")) {
       items.push(trimmed.slice(2).trim());
@@ -126,6 +126,8 @@ function parsePlanSliceDefinitions(planMarkdown: string): Record<string, Workset
       priority: parseMetadataValue(sectionBody, "Priority"),
       objectives: collectListItems(sectionBody, "目标："),
       requiredDeliverables: collectListItems(sectionBody, "交付物："),
+      doneWhen: collectListItems(sectionBody, "done_when:"),
+      stopBoundary: collectListItems(sectionBody, "stop_boundary:"),
       avoid: collectListItems(sectionBody, "必须避免："),
     };
   }
@@ -168,6 +170,8 @@ export function parseWorksetActiveStage(markdown: string): WorksetActiveStageSna
     priority: parseMetadataValue(sectionBody, "Priority"),
     objectives: collectListItems(sectionBody, "目标："),
     requiredDeliverables: collectListItems(sectionBody, "必须交付："),
+    doneWhen: collectListItems(sectionBody, "done_when:"),
+    stopBoundary: collectListItems(sectionBody, "stop_boundary:"),
     avoid: collectListItems(sectionBody, "必须避免："),
   };
 }
@@ -274,6 +278,14 @@ function renderActiveStageBody(stage: WorksetActiveStageSnapshot | null): string
     "",
     ...stage.requiredDeliverables.map((item, index) => `${index + 1}. ${item}`),
   ];
+
+  if ((stage.doneWhen ?? []).length > 0) {
+    lines.push("", "done_when:", "", ...(stage.doneWhen ?? []).map((item, index) => `${index + 1}. ${item}`));
+  }
+
+  if ((stage.stopBoundary ?? []).length > 0) {
+    lines.push("", "stop_boundary:", "", ...(stage.stopBoundary ?? []).map((item, index) => `${index + 1}. ${item}`));
+  }
 
   if (stage.avoid.length > 0) {
     lines.push("", "必须避免：", "", ...stage.avoid.map((item, index) => `${index + 1}. ${item}`));
