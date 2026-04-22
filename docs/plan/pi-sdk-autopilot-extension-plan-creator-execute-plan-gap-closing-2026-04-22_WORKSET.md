@@ -12,7 +12,27 @@
 
 ## Active Stage
 
-- none; pack complete
+### `PACK_COMPLETE`
+
+- Owner: `closeout`
+- State: `DONE`
+- Priority: `closeout_complete`
+
+目标：
+
+- 当前 pack 已 closeout；不再 claim 进一步 active execution slice
+
+必须交付：
+
+1. final docs/control-plane truth
+2. final regression evidence
+3. honest residual handoff
+
+必须避免：
+
+1. leaving a stale active-pack pointer after closeout
+2. describing pre-G5 stop-law or dual-root behavior as landed
+3. hiding unproved runtime gaps behind prose-only closeout
 ## Slice Ownership
 
 ### `G1`
