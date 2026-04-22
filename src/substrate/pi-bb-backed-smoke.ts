@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -24,6 +24,9 @@ export interface PiBbBackedSmokeResult {
   rpcSessionFiles: string[];
   rpcSessionEntryTypes: string[];
   providerPhases: string[];
+  routedSkillSources: string[];
+  routedSkillFiles: string[];
+  agentSkillFiles: string[];
   mcpToolCalls: string[];
   mcpResourceReads: string[];
 }
@@ -35,22 +38,66 @@ export interface RunPiBbBackedSmokeInput {
   cleanup?: boolean;
 }
 
-function seedStubSkills(agentDir: string): void {
-  const skills: Array<{ name: string; summary: string }> = [
-    { name: "plan-creator", summary: "Stub routed skill for BB-backed smoke planning phases." },
-    { name: "execute-plan", summary: "Stub routed skill for BB-backed smoke execute phase." },
-    { name: "execution-reality-audit", summary: "Stub routed skill for BB-backed smoke review phase." },
-  ];
-
-  for (const skill of skills) {
-    const skillDir = path.join(agentDir, "skills", skill.name);
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(
-      path.join(skillDir, "SKILL.md"),
-      `# ${skill.name}\n\n${skill.summary}\n`,
-      "utf8",
-    );
+function flattenTextFragments(content: unknown): string[] {
+  if (typeof content === "string") {
+    return [content];
   }
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  return content.flatMap((part) => {
+    if (typeof part === "string") {
+      return [part];
+    }
+    if (!part || typeof part !== "object") {
+      return [];
+    }
+    const textPart = (part as { text?: unknown }).text;
+    if (typeof textPart === "string") {
+      return [textPart];
+    }
+    const nestedContent = (part as { content?: unknown }).content;
+    return typeof nestedContent === "string" ? [nestedContent] : [];
+  });
+}
+
+function extractLatestMessageContent(requestBody: string): string {
+  const payload = parseRequestBody(requestBody);
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const content = (message as { content?: unknown }).content;
+    const text = flattenTextFragments(content).join("\n").trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  return "";
+}
+
+function extractLatestRoutedSkillSource(requestBody: string): string | undefined {
+  const content = extractLatestMessageContent(requestBody);
+  const source = [...content.matchAll(/Resolved skill source: ([^\n\r]+)/gu)].at(-1)?.[1]?.trim();
+  return source || undefined;
+}
+
+function extractLatestRoutedSkillFile(requestBody: string): string | undefined {
+  const content = extractLatestMessageContent(requestBody);
+  const skillFile = [...content.matchAll(/Resolved skill file: ([^\n\r]+)/gu)].at(-1)?.[1]?.trim();
+  return skillFile || undefined;
+}
+
+function listAgentSkillFiles(agentDir: string): string[] {
+  const skillsRoot = path.join(agentDir, "skills");
+  if (!statSync(skillsRoot, { throwIfNoEntry: false })?.isDirectory()) {
+    return [];
+  }
+
+  return listFilesRecursive(skillsRoot).filter((file) => file.endsWith("SKILL.md")).sort();
 }
 
 function createToolResult(id: string | number | undefined, payload: unknown): string {
@@ -194,6 +241,34 @@ function readSessionEntryTypes(sessionFile: string): string[] {
   }
 
   return [...seen];
+}
+
+function readSessionRoutedDispatchDetails(sessionFile: string): { routedSkillSources: string[]; routedSkillFiles: string[] } {
+  const content = readFileSync(sessionFile, "utf8");
+  const routedSkillSources: string[] = [];
+  const routedSkillFiles: string[] = [];
+
+  for (const line of content.split(/\n+/u).filter(Boolean)) {
+    try {
+      const parsed = JSON.parse(line) as { type?: unknown; message?: { content?: unknown } };
+      if (parsed.type !== "message") {
+        continue;
+      }
+      const text = flattenTextFragments(parsed.message?.content).join("\n");
+      const routedSkillSource = [...text.matchAll(/Resolved skill source: ([^\n\r]+)/gu)].at(-1)?.[1]?.trim();
+      if (routedSkillSource) {
+        routedSkillSources.push(routedSkillSource);
+      }
+      const routedSkillFile = [...text.matchAll(/Resolved skill file: ([^\n\r]+)/gu)].at(-1)?.[1]?.trim();
+      if (routedSkillFile) {
+        routedSkillFiles.push(routedSkillFile);
+      }
+    } catch {
+      // Ignore malformed lines in smoke-only evidence parsing.
+    }
+  }
+
+  return { routedSkillSources, routedSkillFiles };
 }
 
 async function runPiArgs(cwd: string, env: NodeJS.ProcessEnv, args: string[], timeoutMs: number): Promise<PiBbBackedSmokeCommandResult> {
@@ -420,13 +495,14 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
   const agentDir = path.join(tempRoot, "agent");
   const sessionDir = path.join(tempRoot, "sessions");
   const providerPhases: string[] = [];
+  const routedSkillSources: string[] = [];
+  const routedSkillFiles: string[] = [];
   const mcpToolCalls: string[] = [];
   const mcpResourceReads: string[] = [];
 
   mkdirSync(path.join(projectRoot, ".pi"), { recursive: true });
   mkdirSync(agentDir, { recursive: true });
   mkdirSync(sessionDir, { recursive: true });
-  seedStubSkills(agentDir);
   writeFileSync(path.join(projectRoot, ".pi", "settings.json"), `${JSON.stringify({ packages: [packageRoot] }, null, 2)}\n`);
 
   const providerServer = http.createServer((req, res) => {
@@ -473,6 +549,14 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
       }
 
       providerPhases.push(phase);
+      const routedSkillSource = extractLatestRoutedSkillSource(body);
+      if (routedSkillSource) {
+        routedSkillSources.push(routedSkillSource);
+      }
+      const routedSkillFile = extractLatestRoutedSkillFile(body);
+      if (routedSkillFile) {
+        routedSkillFiles.push(routedSkillFile);
+      }
       const args = buildAutopilotReportArgs(phase);
       res.write(`data: ${JSON.stringify({
         id,
@@ -682,6 +766,12 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
     const rpcStatus = await runPiRpcStatus(projectRoot, env, sessionDir, goal, timeoutMs);
     const rpcSessionFiles = listSessionFiles(sessionDir);
     const rpcSessionEntryTypes = rpcSessionFiles[0] ? readSessionEntryTypes(rpcSessionFiles[0]) : [];
+    const sessionRoutedDispatchDetails = rpcSessionFiles.map((sessionFile) => readSessionRoutedDispatchDetails(sessionFile));
+    const observedRoutedSkillSources = sessionRoutedDispatchDetails.flatMap((details) => details.routedSkillSources);
+    const observedRoutedSkillFiles = sessionRoutedDispatchDetails.flatMap((details) => details.routedSkillFiles);
+    const agentSkillFiles = listAgentSkillFiles(agentDir);
+    const resolvedPackageRoot = statSync(packageRoot, { throwIfNoEntry: false })?.isDirectory() ? realpathSync(packageRoot) : packageRoot;
+    const packageSkillRoots = [...new Set([path.join(packageRoot, "skills") + path.sep, path.join(resolvedPackageRoot, "skills") + path.sep])];
 
     return {
       ok:
@@ -695,6 +785,11 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
         /substrate: bb/u.test(rpcStatus.output) &&
         providerPhases.length >= 2 &&
         providerPhases.every((phase) => phase === "master_plan") &&
+        observedRoutedSkillSources.length >= 1 &&
+        observedRoutedSkillSources.every((source) => source === "package") &&
+        observedRoutedSkillFiles.length >= 1 &&
+        observedRoutedSkillFiles.every((file) => packageSkillRoots.some((prefix) => file.startsWith(prefix))) &&
+        agentSkillFiles.length === 0 &&
         sessionFiles.length === 0 &&
         sessionEntryTypes.length === 0 &&
         rpcSessionFiles.length >= 1 &&
@@ -713,6 +808,9 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
       rpcSessionFiles,
       rpcSessionEntryTypes,
       providerPhases,
+      routedSkillSources: observedRoutedSkillSources,
+      routedSkillFiles: observedRoutedSkillFiles,
+      agentSkillFiles,
       mcpToolCalls,
       mcpResourceReads,
     };
@@ -726,13 +824,18 @@ export async function runPiBbBackedSmoke(input: RunPiBbBackedSmokeInput = {}): P
 }
 
 export function formatPiBbBackedSmokeResult(result: PiBbBackedSmokeResult): string[] {
+  const routedSkillSources = [...new Set(result.routedSkillSources)];
+  const routedSkillFiles = [...new Set(result.routedSkillFiles)];
   return [
     `package-root: ${result.packageRoot}`,
     `goal: ${result.goal}`,
     `pi-bb-backed-smoke: ${result.ok ? "PASS" : "FAIL"}`,
-    `- print-run exit=${result.run.exitCode ?? "null"} timedOut=${result.run.timedOut}`,
-    `- print-status: ${result.status.output || "<empty>"}`,
-    `- rpc-status: ${(result.rpcStatus.output || "<empty>").replace(/\n+/gu, " | ")}`,
+    `- clean-room agent-dir routed skills: ${result.agentSkillFiles.join(", ") || "<none>"}`,
+    `- routed-skill-sources: ${routedSkillSources.join(", ") || "<none>"}`,
+    `- routed-skill-files: ${routedSkillFiles.join(", ") || "<none>"}`,
+    `- print-mode run exit=${result.run.exitCode ?? "null"} timedOut=${result.run.timedOut}`,
+    `- print-mode status: ${result.status.output || "<empty>"}`,
+    `- rpc-mode status: ${(result.rpcStatus.output || "<empty>").replace(/\n+/gu, " | ")}`,
     `- rpc-session-files: ${result.rpcSessionFiles.length}`,
     `- rpc-session-entry-types: ${result.rpcSessionEntryTypes.join(", ") || "<none>"}`,
     `- provider-phases: ${result.providerPhases.join(", ") || "<none>"}`,
