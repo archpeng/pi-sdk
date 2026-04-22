@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   applyControlPlaneProgressWriteback,
   buildControlPlaneProgressTransition,
@@ -12,7 +13,7 @@ import {
   parseWorksetActiveStage,
 } from "../src/substrate/control-plane.ts";
 
-const REPO_ROOT = "/home/peng/dt-git/github/pi-sdk";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("parsePlanControlPlaneReadme extracts the active pack, active slice, and intended handoff", () => {
   const snapshot = parsePlanControlPlaneReadme(`

@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { formatPiBbBackedSmokeResult, runPiBbBackedSmoke } from "../src/substrate/pi-bb-backed-smoke.ts";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("runPiBbBackedSmoke proves deterministic BB-backed entry and same-process progression via bounded RPC, while keeping the agent dir skill-clean", async () => {
   const result = await runPiBbBackedSmoke({
-    packageRoot: "/home/peng/dt-git/github/pi-sdk",
+    packageRoot: REPO_ROOT,
     goal: "prove bb-backed residual",
     timeoutMs: 8_000,
   });

@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = "/home/peng/dt-git/github/pi-sdk";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("README documents local substrate as repo-local control-plane aware rather than pure no-op", () => {
   const readme = readFileSync(path.join(REPO_ROOT, "README.md"), "utf8");

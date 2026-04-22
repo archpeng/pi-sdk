@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { runPiStartupAutoloadProof } from "../src/substrate/pi-autoload-proof.ts";
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
 test("runPiStartupAutoloadProof proves project-settings autoload without relying on -e", () => {
-  const result = runPiStartupAutoloadProof({ packageRoot: "/home/peng/dt-git/github/pi-sdk" });
+  const result = runPiStartupAutoloadProof({ packageRoot: REPO_ROOT });
 
   assert.equal(result.ok, true);
   assert.match(result.autoload.output, /No autopilot state recorded yet\./);
