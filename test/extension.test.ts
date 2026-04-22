@@ -4,6 +4,7 @@ import os from "node:os";
 import test from "node:test";
 import assert from "node:assert/strict";
 import autopilotExtension from "../src/extension/index.ts";
+import { resolveAutopilotPhaseRoute } from "../src/autopilot/protocol.ts";
 import {
   buildAutopilotPhaseDispatchMessage,
   resolveAutopilotPhaseDispatch,
@@ -596,14 +597,63 @@ test("resolveAutopilotPhaseDispatch rejects a missing deterministic route mappin
   );
 });
 
-test("/autopilot-run injects the routed skill file into the dispatched user message", async () => {
+test("resolveAutopilotPhaseDispatch rejects a missing package-owned routed skill file when no fallback exists", () => {
+  const agentDir = createTempAgentDir({});
+  const packageRoot = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-missing-routed-skill-"));
+
+  try {
+    const route = resolveAutopilotPhaseRoute("execute", { packageRoot, agentDir });
+    if (route.surface !== "skill") {
+      throw new Error("expected a skill route");
+    }
+
+    assert.equal(route.resolvedFrom, "package");
+    assert.throws(
+      () =>
+        resolveAutopilotPhaseDispatch("execute", {
+          routeMatrix: {
+            execute: route,
+          },
+        }),
+      /requires skill file/i,
+    );
+  } finally {
+    rmSync(agentDir, { recursive: true, force: true });
+    rmSync(packageRoot, { recursive: true, force: true });
+  }
+});
+
+test("resolveAutopilotPhaseDispatch rejects a blank fallback routed skill file", () => {
+  const packageRoot = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-blank-package-root-"));
+  const agentDir = createTempAgentDir({
+    "execute-plan": "   \n\n",
+  });
+
+  try {
+    const route = resolveAutopilotPhaseRoute("execute", { packageRoot, agentDir });
+    if (route.surface !== "skill") {
+      throw new Error("expected a skill route");
+    }
+
+    assert.equal(route.resolvedFrom, "agent_dir");
+    assert.throws(
+      () =>
+        resolveAutopilotPhaseDispatch("execute", {
+          routeMatrix: {
+            execute: route,
+          },
+        }),
+      /non-empty skill file/i,
+    );
+  } finally {
+    rmSync(agentDir, { recursive: true, force: true });
+    rmSync(packageRoot, { recursive: true, force: true });
+  }
+});
+
+test("/autopilot-run injects the package-owned routed skill file into the dispatched user message", async () => {
   const { pi, commands, sentUserMessages } = createFakePi();
   const ctx = createFakeContext();
-  const agentDir = createTempAgentDir({
-    "plan-creator": "# Plan Creator\n\n- Plan deterministically.\n",
-  });
-  const priorAgentDir = process.env.PI_CODING_AGENT_DIR;
-  process.env.PI_CODING_AGENT_DIR = agentDir;
   setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
   autopilotExtension(pi);
 
@@ -613,17 +663,35 @@ test("/autopilot-run injects the routed skill file into the dispatched user mess
     const dispatched = String(sentUserMessages[0]?.content);
     assert.match(dispatched, /\[AUTOPILOT ROUTED DISPATCH\]/);
     assert.match(dispatched, /Bound surface: skill `plan-creator`/);
-    assert.match(dispatched, /# Plan Creator/);
+    assert.match(dispatched, /Resolved skill source: package/);
+    assert.match(dispatched, /Package-owned primary:/);
+    assert.match(dispatched, /name: plan-creator/);
     assert.match(dispatched, /Phase-specific autopilot prompt:/);
     assert.match(dispatched, /Objective: land the Pi-native autopilot/);
   } finally {
-    if (priorAgentDir === undefined) {
-      delete process.env.PI_CODING_AGENT_DIR;
-    } else {
-      process.env.PI_CODING_AGENT_DIR = priorAgentDir;
-    }
-    rmSync(agentDir, { recursive: true, force: true });
     setRuntimeSubstrate(undefined);
+  }
+});
+
+test("resolveAutopilotPhaseRoute falls back to the agent-dir skill when the package-owned skill is absent", () => {
+  const agentDir = createTempAgentDir({
+    "execute-plan": "# Execute Plan\n\n- Ship the current slice.\n",
+  });
+  const packageRoot = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-missing-package-root-"));
+
+  try {
+    const route = resolveAutopilotPhaseRoute("execute", { packageRoot, agentDir });
+    if (route.surface !== "skill") {
+      throw new Error("expected a skill route");
+    }
+
+    assert.equal(route.resolvedFrom, "agent_dir");
+    assert.equal(route.skillPath, path.join(agentDir, "skills", "execute-plan", "SKILL.md"));
+    assert.equal(route.packageSkillPath, path.join(packageRoot, "skills", "execute-plan", "SKILL.md"));
+    assert.equal(route.fallbackSkillPath, path.join(agentDir, "skills", "execute-plan", "SKILL.md"));
+  } finally {
+    rmSync(agentDir, { recursive: true, force: true });
+    rmSync(packageRoot, { recursive: true, force: true });
   }
 });
 
@@ -642,6 +710,9 @@ test("buildAutopilotPhaseDispatchMessage preloads resolved skill contents into t
           dispatchEncoding: "read_skill_file",
           skillName: "execute-plan",
           skillPath,
+          packageSkillPath: path.join("/package", "skills", "execute-plan", "SKILL.md"),
+          fallbackSkillPath: skillPath,
+          resolvedFrom: "agent_dir",
           requiredTools: ["read", "autopilot_report"],
           summary: "execute the current slice",
         },
@@ -651,6 +722,8 @@ test("buildAutopilotPhaseDispatchMessage preloads resolved skill contents into t
     const routed = buildAutopilotPhaseDispatchMessage("Execute the current wave.", dispatch);
 
     assert.match(routed, /Bound surface: skill `execute-plan`/);
+    assert.match(routed, /Resolved skill source: agent_dir/);
+    assert.match(routed, /Compatibility fallback:/);
     assert.match(routed, /# Execute Plan/);
     assert.match(routed, /Execute the current wave\./);
   } finally {
@@ -701,7 +774,7 @@ test("/autopilot-run fails fast when the current tool allowlist omits read for a
 });
 
 
-test("/autopilot-run halts when the deterministic phase route skill file is missing", async () => {
+test("/autopilot-run still starts when the agent-dir fallback tree is missing but the package-owned routed skill exists", async () => {
   const { pi, commands, sentUserMessages, appendedEntries } = createFakePi();
   const ctx = createFakeContext();
   const priorAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -712,10 +785,10 @@ test("/autopilot-run halts when the deterministic phase route skill file is miss
   try {
     await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
 
-    assert.equal(sentUserMessages.length, 0);
-    assert.match(ctx.notifications.at(-1)?.message ?? "", /plan-creator\/SKILL\.md/);
+    assert.equal(sentUserMessages.length, 1);
+    assert.match(String(sentUserMessages[0]?.content), /Resolved skill source: package/);
     const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
-    assert.equal(latestRuntime?.mode, "closed");
+    assert.notEqual(latestRuntime?.mode, "closed");
   } finally {
     if (priorAgentDir === undefined) {
       delete process.env.PI_CODING_AGENT_DIR;

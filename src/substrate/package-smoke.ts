@@ -2,7 +2,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAutopilotPackageMetadata, resolveAutopilotPackageRoot, type AutopilotPackageMetadata } from "./manifest.js";
+import {
+  ROUTED_AUTOPILOT_SKILL_NAMES,
+  loadAutopilotPackageMetadata,
+  resolveAutopilotPackageRoot,
+  type AutopilotPackageMetadata,
+} from "./manifest.js";
 
 export interface PackagedInstallSmokeCommandResult {
   label: string;
@@ -20,9 +25,12 @@ export interface PackagedInstallSmokeResult {
   packageName: string;
   version: string;
   tarballFilename: string;
+  installedPackageRoot: string;
   versionOutput: string;
   doctorOutput: string;
   runbookPresent: boolean;
+  routedSkillEntriesPresent: boolean;
+  routedSkillEntries: Array<{ skillName: string; path: string; present: boolean }>;
   commands: PackagedInstallSmokeCommandResult[];
 }
 
@@ -116,15 +124,27 @@ export function runPackagedInstallSmoke(input: RunPackagedInstallSmokeInput = {}
     const version = runCommand(commands, "cli-version", "node", [cliPath, "--version"], installRoot);
     const doctor = runCommand(commands, "cli-doctor", "node", [cliPath, "--doctor"], installRoot);
     const runbookPresent = existsSync(path.join(installedPackageRoot, "docs", "runbooks", "pi-sdk-autopilot-v1-operator-runbook.md"));
+    const routedSkillEntries = ROUTED_AUTOPILOT_SKILL_NAMES.map((skillName) => {
+      const skillPath = path.join(installedPackageRoot, "skills", skillName, "SKILL.md");
+      return {
+        skillName,
+        path: skillPath,
+        present: existsSync(skillPath),
+      };
+    });
+    const routedSkillEntriesPresent = routedSkillEntries.every((entry) => entry.present);
 
     return {
-      ok: commands.every((command) => command.ok) && runbookPresent,
+      ok: commands.every((command) => command.ok) && runbookPresent && routedSkillEntriesPresent,
       packageName: metadata.name,
       version: metadata.version,
       tarballFilename,
+      installedPackageRoot,
       versionOutput: version.stdout.trim(),
       doctorOutput: doctor.stdout.trim(),
       runbookPresent,
+      routedSkillEntriesPresent,
+      routedSkillEntries,
       commands,
     };
   } finally {
@@ -139,9 +159,12 @@ export function formatPackagedInstallSmokeResult(result: PackagedInstallSmokeRes
     `package: ${result.packageName}@${result.version}`,
     `packaged-install-smoke: ${result.ok ? "PASS" : "FAIL"}`,
     `tarball: ${result.tarballFilename}`,
+    `installed-package-root: ${result.installedPackageRoot}`,
     `version: ${result.versionOutput || "<empty>"}`,
     `doctor: ${result.doctorOutput || "<empty>"}`,
     `runbook: ${result.runbookPresent ? "present" : "missing"}`,
+    `routed-skills: ${result.routedSkillEntriesPresent ? "present" : "missing"}`,
+    ...result.routedSkillEntries.map((entry) => `- [${entry.present ? "PASS" : "FAIL"}] routed-skill ${entry.skillName}: ${entry.path}`),
     ...result.commands.map((command) => `- [${command.ok ? "PASS" : "FAIL"}] ${command.label}: ${command.command} ${command.args.join(" ")}`),
   ];
 }

@@ -56,6 +56,13 @@ export interface AutopilotRunManifest {
     architecture: string;
     planControl: string;
   };
+  skills: {
+    routedRoot: string;
+    routedSkillNames: string[];
+    packageEntryPattern: string;
+    primarySource: string;
+    compatibilityFallback: string;
+  };
   substrateModes: readonly string[];
 }
 
@@ -71,6 +78,28 @@ export interface AutopilotDoctorResult {
   ok: boolean;
   checks: AutopilotDoctorCheck[];
 }
+
+export const ROUTED_AUTOPILOT_SKILL_NAMES = ["plan-creator", "execute-plan", "execution-reality-audit"] as const;
+
+const ROUTED_AUTOPILOT_SKILL_REQUIRED_FILES: Record<(typeof ROUTED_AUTOPILOT_SKILL_NAMES)[number], readonly string[]> = {
+  "plan-creator": [
+    "skills/plan-creator/SKILL.md",
+    "skills/plan-creator/references/autopilot-control-plane-pack.md",
+    "skills/plan-creator/assets/README.autopilot.template.md",
+    "skills/plan-creator/assets/PLAN.autopilot.template.md",
+    "skills/plan-creator/assets/STATUS.autopilot.template.md",
+    "skills/plan-creator/assets/WORKSET.autopilot.template.md",
+  ],
+  "execute-plan": [
+    "skills/execute-plan/SKILL.md",
+    "skills/execute-plan/references/autopilot-control-plane-execution.md",
+    "skills/execute-plan/assets/README.autopilot.template.md",
+    "skills/execute-plan/assets/PLAN.autopilot.template.md",
+    "skills/execute-plan/assets/STATUS.autopilot.template.md",
+    "skills/execute-plan/assets/WORKSET.autopilot.template.md",
+  ],
+  "execution-reality-audit": ["skills/execution-reality-audit/SKILL.md"],
+};
 
 export function resolveAutopilotPackageRoot(metaUrl = import.meta.url): string {
   return path.resolve(path.dirname(fileURLToPath(metaUrl)), "../..");
@@ -134,6 +163,13 @@ export function buildAutopilotRunManifest(input: {
       architecture: "docs/architecture.md",
       planControl: "docs/plan/README.md",
     },
+    skills: {
+      routedRoot: "skills",
+      routedSkillNames: [...ROUTED_AUTOPILOT_SKILL_NAMES],
+      packageEntryPattern: "skills/<skillName>/SKILL.md",
+      primarySource: "<packageRoot>/skills/<skillName>/SKILL.md",
+      compatibilityFallback: "${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/<skillName>/SKILL.md",
+    },
     substrateModes: AUTOPILOT_SUBSTRATE_MODES,
   };
 }
@@ -154,6 +190,7 @@ export function runAutopilotDoctorChecks(input: {
   const metadata = input.packageMetadata ?? loadAutopilotPackageMetadata(manifest.packageRoot);
   const files = metadata.files ?? [];
   const keywords = metadata.keywords ?? [];
+  const routedSkillFiles = ROUTED_AUTOPILOT_SKILL_NAMES.flatMap((skillName) => ROUTED_AUTOPILOT_SKILL_REQUIRED_FILES[skillName]);
 
   const checks: AutopilotDoctorCheck[] = [
     {
@@ -179,9 +216,9 @@ export function runAutopilotDoctorChecks(input: {
     },
     {
       key: "packaged-files",
-      ok: files.includes("dist") && files.includes("src") && files.includes("README.md") && files.includes("docs/runbooks"),
+      ok: files.includes("dist") && files.includes("src") && files.includes("skills") && files.includes("README.md") && files.includes("docs/runbooks"),
       detail: formatCheckState(
-        files.includes("dist") && files.includes("src") && files.includes("README.md") && files.includes("docs/runbooks"),
+        files.includes("dist") && files.includes("src") && files.includes("skills") && files.includes("README.md") && files.includes("docs/runbooks"),
         `files=${files.join(", ") || "<none>"}`,
       ),
     },
@@ -215,6 +252,22 @@ export function runAutopilotDoctorChecks(input: {
       key: "runbook-exists",
       ok: existsSync(joinPackagePath(manifest.packageRoot, manifest.docs.runbook)),
       detail: formatCheckState(existsSync(joinPackagePath(manifest.packageRoot, manifest.docs.runbook)), `${manifest.docs.runbook} present`),
+    },
+    {
+      key: "routed-skill-root-exists",
+      ok: existsSync(joinPackagePath(manifest.packageRoot, manifest.skills.routedRoot)),
+      detail: formatCheckState(
+        existsSync(joinPackagePath(manifest.packageRoot, manifest.skills.routedRoot)),
+        `${manifest.skills.routedRoot} present`,
+      ),
+    },
+    {
+      key: "routed-skill-files-exist",
+      ok: routedSkillFiles.every((relativePath) => existsSync(joinPackagePath(manifest.packageRoot, relativePath))),
+      detail: formatCheckState(
+        routedSkillFiles.every((relativePath) => existsSync(joinPackagePath(manifest.packageRoot, relativePath))),
+        routedSkillFiles.join(", "),
+      ),
     },
   ];
 

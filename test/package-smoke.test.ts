@@ -11,7 +11,7 @@ const fixtureMetadata: AutopilotPackageMetadata = {
   version: "0.0.1-test",
   description: "fixture package",
   keywords: ["pi-package"],
-  files: ["dist", "src", "README.md", "docs/runbooks"],
+  files: ["dist", "src", "skills", "README.md", "docs/runbooks"],
   main: "./dist/index.js",
   types: "./dist/index.d.ts",
   bin: {
@@ -28,11 +28,17 @@ function createFixturePackageRoot(): string {
   mkdirSync(path.join(root, "dist", "extension"), { recursive: true });
   mkdirSync(path.join(root, "docs", "runbooks"), { recursive: true });
   mkdirSync(path.join(root, "src", "extension"), { recursive: true });
+  mkdirSync(path.join(root, "skills", "plan-creator"), { recursive: true });
+  mkdirSync(path.join(root, "skills", "execute-plan"), { recursive: true });
+  mkdirSync(path.join(root, "skills", "execution-reality-audit"), { recursive: true });
 
   writeFileSync(path.join(root, "package.json"), JSON.stringify(fixtureMetadata, null, 2));
   writeFileSync(path.join(root, "README.md"), "# fixture\n");
   writeFileSync(path.join(root, "docs", "runbooks", "pi-sdk-autopilot-v1-operator-runbook.md"), "# runbook\n");
   writeFileSync(path.join(root, "src", "extension", "index.ts"), "export default function () {}\n");
+  writeFileSync(path.join(root, "skills", "plan-creator", "SKILL.md"), "# plan creator\n");
+  writeFileSync(path.join(root, "skills", "execute-plan", "SKILL.md"), "# execute plan\n");
+  writeFileSync(path.join(root, "skills", "execution-reality-audit", "SKILL.md"), "# audit\n");
   writeFileSync(path.join(root, "dist", "index.js"), "export const ok = true;\n");
   writeFileSync(path.join(root, "dist", "index.d.ts"), "export declare const ok: true;\n");
   writeFileSync(path.join(root, "dist", "extension", "index.js"), "export default function () {}\n");
@@ -50,7 +56,10 @@ test("runPackagedInstallSmoke packs and installs a tarball into a clean temp pro
 
   assert.equal(result.ok, true);
   assert.match(result.versionOutput, /0\.0\.1-test/);
+  assert.match(result.installedPackageRoot, /node_modules[\\/]pi-sdk-fixture$/);
   assert.match(result.doctorOutput, /doctor: PASS/);
   assert.equal(result.runbookPresent, true);
+  assert.equal(result.routedSkillEntriesPresent, true);
+  assert.equal(result.routedSkillEntries.every((entry) => entry.present), true);
   assert.equal(result.commands.every((command) => command.ok), true);
 });
