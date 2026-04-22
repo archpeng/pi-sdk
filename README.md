@@ -194,10 +194,19 @@ interactive runtime 现在固定使用以下 route matrix：
 
 这条 contract 不是“模型最好这样做”，而是 extension runtime 的 hard binding：
 
+- package-owned routed skills 位于 `<packageRoot>/skills/*`，是默认 primary shipped surface；`${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/*` 只作为 compatibility fallback
 - skill-bound phase 必须能解析到 routed `SKILL.md`，且文件不能为空
 - `selectedTools` 必须包含 `autopilot_report`；skill-bound phase 还必须包含 `read`
 - route 缺失、route/phase 不匹配、skill 文件缺失/为空、wrong `autopilot_report.phase`、wrong `stepId`、未知 `doneWhenMet / stopBoundaryHit` item 都会 fail-fast
 - repo-local machine control plane 固定单根在 `docs/plan/*`
+
+## Routed skill precedence / proof boundary / recovery
+
+- primary routed runtime surface 是 `<packageRoot>/skills/{plan-creator,execute-plan,execution-reality-audit}/SKILL.md`
+- `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/*` 仍然存在，但只作为 explicit compatibility fallback；当前 contract **不**宣称更宽泛的 project-local `.pi/skills` auto-discovery
+- `npm run smoke:pi-bb-backed` 证明 repo-local clean-room routed phase：isolated/empty `PI_CODING_AGENT_DIR` 下成功输出应包含 `clean-room agent-dir routed skills: <none>` 与 `routed-skill-sources: package`
+- `npm run smoke:packaged-install` 证明 installed tarball 既包含 routed skill bundle，也能通过 installed-package alias 运行 clean-room routed phase；这不是对额外 skill discovery path 的泛化承诺
+- 若 routed dispatch 在 repo work 开始前就 fail-fast，先检查 package-owned skill path，再检查 explicit agent-dir fallback，然后重跑 `node dist/sdk/orchestrator.js --doctor`、`npm run smoke:pi-bb-backed`、`npm run smoke:packaged-install`
 
 ## 作为 CLI / headless driver 使用
 

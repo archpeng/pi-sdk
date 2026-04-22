@@ -136,11 +136,13 @@ flowchart TD
    - 必要时 memory / govern hydration
 2. `buildInteractivePrompt(...)` 生成 phase prompt，并解析 deterministic phase route
 3. route 若是 skill-bound：
-   - 解析 `${PI_CODING_AGENT_DIR}/skills/.../SKILL.md`
-   - skill 文件缺失或为空会直接 hard-stop
+   - 先解析 package-owned `<packageRoot>/skills/.../SKILL.md`
+   - 若 package path 不可用，再解析 `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/.../SKILL.md` 作为 explicit compatibility fallback
+   - 被选中的 skill 文件缺失或为空会直接 hard-stop
 4. extension 生成 `[AUTOPILOT ROUTED DISPATCH]` user message：
    - 显式声明 `phase -> skill/prompt surface`
    - skill-bound phase 预加载 `SKILL.md`
+   - dispatch message 还会暴露 resolved skill source / file，以及 package primary path / compatibility fallback path
    - closeout phase 绑定 repo-local closeout prompt surface
 5. extension 用 `sendUserMessage(built.userMessage)` 在**同一 Pi session**内继续 phase
 6. `before_agent_start` 先做 selected-tools preflight：
