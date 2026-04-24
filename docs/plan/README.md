@@ -2,30 +2,31 @@
 
 ## Active Pack
 
-- `docs/plan/pi-sdk-autopilot-packaged-routed-skills-productization-2026-04-22_PLAN.md`
-- `docs/plan/pi-sdk-autopilot-packaged-routed-skills-productization-2026-04-22_STATUS.md`
-- `docs/plan/pi-sdk-autopilot-packaged-routed-skills-productization-2026-04-22_WORKSET.md`
+- `docs/plan/pi-sdk-pi-coding-agent-0-70-2-compatibility-and-upgrade-2026-04-24_PLAN.md`
+- `docs/plan/pi-sdk-pi-coding-agent-0-70-2-compatibility-and-upgrade-2026-04-24_STATUS.md`
+- `docs/plan/pi-sdk-pi-coding-agent-0-70-2-compatibility-and-upgrade-2026-04-24_WORKSET.md`
 
 ## Current Active Slice
 
-- `PACK_COMPLETE`
+- `U1`
+
 ## Intended Handoff
 
-- `no immediate successor pack required for this workstream`
+- `execute-plan`
 
 ## Previous Pack
 
-- `docs/plan/pi-sdk-extension-driver-thinning-follow-up-2026-04-21_PLAN.md`
-- `docs/plan/pi-sdk-extension-driver-thinning-follow-up-2026-04-21_STATUS.md`
-- `docs/plan/pi-sdk-extension-driver-thinning-follow-up-2026-04-21_WORKSET.md`
+- `docs/plan/pi-sdk-autopilot-packaged-routed-skills-productization-2026-04-22_PLAN.md`
+- `docs/plan/pi-sdk-autopilot-packaged-routed-skills-productization-2026-04-22_STATUS.md`
+- `docs/plan/pi-sdk-autopilot-packaged-routed-skills-productization-2026-04-22_WORKSET.md`
 
 ## Notes
 
 This `docs/plan/` directory remains the repo-level control plane for resumable work.
 
-The prior extension-driver thinning follow-up pack is closed out. The preceding gap-closing pack is also closed out: it landed deterministic phase routing, skill-aware same-session dispatch, a single-root `docs/plan/*` control-plane contract, machine-checked `done_when / stop_boundary`, and a routed local proof path.
+The previous packaged routed-skills productization pack is closed out at `PACK_COMPLETE`: it productized package-owned routed skills as the primary runtime surface under `<packageRoot>/skills/*`, kept `${PI_CODING_AGENT_DIR:-~/.pi/agent}` as explicit compatibility fallback only, landed honest clean-room proof for both repo-local and installed-package routed execution, and completed the routed global-skill audit.
 
-The current active pack is now closed out at `PACK_COMPLETE`: it productized package-owned routed skills as the primary runtime surface under `<packageRoot>/skills/*`, kept `${PI_CODING_AGENT_DIR:-~/.pi/agent}` as explicit compatibility fallback only, landed honest clean-room proof for both repo-local and installed-package routed execution, and completed the routed global-skill audit. That audit found no drift for the three shipped routed skills (`plan-creator`, `execute-plan`, `execution-reality-audit`); extra host-global-only non-routed skills (`context-bootstrap`, `dense-documentation`, `doc-coauthoring`, `skill-creator`, `vibe-coding`) remain outside this package-owned routed-skill scope and are recorded as residual context rather than runtime dependency.
+The current active pack prepares the local `pi-sdk`/AutoPi extension for the requested Pi Coding Agent `0.70.2` upgrade. Pre-plan evidence found that npm currently exposes `0.70.0` but not `0.70.2`; therefore this pack first fixes/proves local `0.70.x` compatibility, then gates any global Pi upgrade on exact `0.70.2` availability. The active slice is `U1`, and execution must not silently install `0.70.0` while reporting the requested `0.70.2` upgrade as complete.
 
 ## Deterministic Phase Routing Contract (`G1` freeze)
 
