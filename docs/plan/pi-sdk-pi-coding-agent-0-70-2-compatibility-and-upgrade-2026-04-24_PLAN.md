@@ -43,6 +43,54 @@ Minimum ladder by slice:
 3. U3: `npm view @mariozechner/pi-coding-agent@0.70.2 version --json`; only if available, global install plus `pi --version` and `npm list -g @mariozechner/pi-coding-agent --depth=0`.
 4. U4: `npx tsx --test test/control-plane.test.ts`, `plan_sync`, `workspace_scan`, and final readback of `docs/plan/README.md` active pack truth.
 
+## Master Wave Plan
+
+This is the large 推进纲领 for the workstream. It keeps implementation pressure on the smallest proof-carrying slice while preserving the exact `0.70.2` upgrade gate.
+
+### Wave 1 — repo-local Pi `0.70.x` source/dependency compatibility (`U1`)
+
+- Primary objective: remove the known schema-package mismatch that prevents AutoPi from typechecking against Pi Coding Agent `0.70.x`.
+- Bounded surfaces: `src/extension/index.ts`, `package.json`, `package-lock.json`.
+- Required proof: lockfile readback resolves `@mariozechner/pi-coding-agent` / `@mariozechner/pi-ai` to `0.70.x`, `typebox` v1 is present for extension schemas, `npm run typecheck`, and `npm test`.
+- Stop law: do not run global `npm install -g`; stop/replan if Pi `0.70.x` requires API changes beyond the schema-package swap or if dependency resolution leaves the `0.70.x` lane.
+- Handoff: `execute-plan` on active slice `U1` now.
+
+### Wave 2 — patched local package startup/smoke proof (`U2`)
+
+- Primary objective: prove the patched source still builds and loads through the Pi package surfaces used by the operator environment.
+- Bounded surfaces: `dist/**`, smoke scripts under `scripts/`, and smoke helpers under `src/substrate/`.
+- Required proof: `npm run build`, `npm run smoke:pi-autoload`, `npm run smoke:pi-commands`, plus optional `smoke:pi-bb-backed` / `smoke:packaged-install` when environment dependencies permit.
+- Stop law: repair local package startup before any global upgrade gate if startup or command smoke fails; record precise blocker for unavailable external credentials/services.
+- Handoff: `execute-plan` on `U2` only after U1 review accepts repo-local compatibility proof.
+
+### Wave 3 — exact npm availability gate and global Pi upgrade (`U3`)
+
+- Primary objective: decide the requested global upgrade using fresh registry truth, not the fallback-compatible `0.70.0` readiness proof.
+- Bounded surfaces: npm registry readback, current global npm prefix, `pi --version`, and global `@mariozechner/pi-coding-agent` package readback.
+- Required proof: `npm view @mariozechner/pi-coding-agent@0.70.2 version --json --prefer-online`; if available, successful `npm install -g @mariozechner/pi-coding-agent@0.70.2`, `pi --version == 0.70.2`, and `npm list -g @mariozechner/pi-coding-agent --depth=0`.
+- Stop law: block rather than substitute if `0.70.2` is still unavailable; require explicit operator decision before installing any non-`0.70.2` global target.
+- Handoff: `execute-plan` on `U3` after U2 smoke proof is accepted.
+
+### Wave 4 — final control-plane truth and honest closeout (`U4`)
+
+- Primary objective: close the workstream as one clear terminal truth: exact `0.70.2` upgraded, or repo-ready but exact global target unavailable.
+- Bounded surfaces: `docs/plan/README.md`, active `STATUS`, active `WORKSET`, and optional closeout artifact.
+- Required proof: `npx tsx --test test/control-plane.test.ts`, `plan_sync`, `workspace_scan`, and final version evidence if the global upgrade occurred.
+- Stop law: do not mark `PACK_COMPLETE` if parser tests fail or if U1/U2 evidence is missing; do not mix “upgraded” and “blocked” as simultaneous terminal states.
+- Handoff: repo-local closeout prompt surface after U4 docs/parser proof is accepted.
+
+### Wave 5 — residual operator handoff / post-closeout verification window
+
+- Primary objective: make any residual state operationally safe after the pack terminal state is known.
+- Bounded surfaces: final closeout note/runbook references only; no extra code edits unless closeout/review identifies a concrete regression.
+- Required proof: final operator-facing summary includes current local package state, global Pi state, whether exact `0.70.2` was installed, and the next safe command if the registry block clears later.
+- Stop law: do not reopen implementation inside closeout unless a verified regression invalidates U1/U2/U3 evidence; route any such regression back to `replan`.
+- Handoff: scheduler closeout if terminal; otherwise `plan-creator` replan with the precise failed gate.
+
+### Best First Wave
+
+Wave 1 (`U1`) is the correct first wave now because repo inspection confirms the active code still imports `Type` from `@sinclair/typebox`, `package.json` and `package-lock.json` still resolve Pi packages to `0.68.0`, and `typebox` v1 is not present. This is the least-risk path because it stays repo-local, avoids global installation, and directly attacks the known Pi `0.70.x` typecheck blocker before broader smoke or upgrade work.
+
 ## Blockers / Risks
 
 - `@mariozechner/pi-coding-agent@0.70.2` may still be absent from the configured npm registry; this blocks the exact requested global upgrade.
@@ -108,6 +156,17 @@ Minimum ladder by slice:
 3. `npm run smoke:pi-commands` passes.
 4. If feasible in the current environment, run `npm run smoke:pi-bb-backed` and/or `npm run smoke:packaged-install`; otherwise record the exact blocker.
 
+done_when:
+
+1. `npm run build` passes in `/home/peng/dt-git/github/pi-sdk` and produces patched `dist/` output.
+2. `npm run smoke:pi-autoload` and `npm run smoke:pi-commands` both pass in `/home/peng/dt-git/github/pi-sdk`.
+3. Optional U2 smoke commands are either passed or skipped with an exact blocker recorded in `STATUS` / `WORKSET`.
+
+stop_boundary:
+
+1. Stop if Pi startup/package smoke fails after U1; repair the package before moving to global upgrade gating.
+2. Stop if smoke requires external credentials or live services not available in the current environment; record as blocker instead of faking proof.
+
 交付边界：
 
 1. Stop if Pi startup/package smoke fails after U1; repair the package before moving to global upgrade gating.
@@ -141,6 +200,19 @@ Minimum ladder by slice:
 2. If available: `npm install -g @mariozechner/pi-coding-agent@0.70.2` exits 0.
 3. If installed: `pi --version` reports `0.70.2`.
 4. If installed: `npm list -g @mariozechner/pi-coding-agent --depth=0` reports `@mariozechner/pi-coding-agent@0.70.2`.
+
+done_when:
+
+1. Fresh npm readback proves whether `@mariozechner/pi-coding-agent@0.70.2` exists in the configured registry.
+2. If `0.70.2` is available, global `npm install -g @mariozechner/pi-coding-agent@0.70.2` succeeds without changing npm prefix or Node layout.
+3. If global install occurs, `pi --version` and `npm list -g @mariozechner/pi-coding-agent --depth=0` both prove `0.70.2`.
+4. If `0.70.2` is unavailable, `STATUS` / `WORKSET` record explicit blocked/readiness state and no global install is performed.
+
+stop_boundary:
+
+1. Stop with `blocked` if npm still reports no matching version for `0.70.2`.
+2. Stop for human decision if only `0.70.0` is available and the operator wants to choose whether to install it instead.
+3. Stop and revert/replan if global Pi upgrade breaks local extension startup after U1/U2 passed.
 
 交付边界：
 

@@ -1,6 +1,6 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { registerAutopilotCommands } from "./command-handlers.js";
 import { buildInteractivePrompt, writeAcceptedSliceCompletion } from "./runtime-dispatch.js";
 import {

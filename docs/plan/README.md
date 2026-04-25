@@ -8,11 +8,10 @@
 
 ## Current Active Slice
 
-- `U1`
-
+- `U3`
 ## Intended Handoff
 
-- `execute-plan`
+- `execution-reality-audit`
 
 ## Previous Pack
 
@@ -26,7 +25,7 @@ This `docs/plan/` directory remains the repo-level control plane for resumable w
 
 The previous packaged routed-skills productization pack is closed out at `PACK_COMPLETE`: it productized package-owned routed skills as the primary runtime surface under `<packageRoot>/skills/*`, kept `${PI_CODING_AGENT_DIR:-~/.pi/agent}` as explicit compatibility fallback only, landed honest clean-room proof for both repo-local and installed-package routed execution, and completed the routed global-skill audit.
 
-The current active pack prepares the local `pi-sdk`/AutoPi extension for the requested Pi Coding Agent `0.70.2` upgrade. Pre-plan evidence found that npm currently exposes `0.70.0` but not `0.70.2`; therefore this pack first fixes/proves local `0.70.x` compatibility, then gates any global Pi upgrade on exact `0.70.2` availability. The active slice is `U1`, and execution must not silently install `0.70.0` while reporting the requested `0.70.2` upgrade as complete.
+The current active pack prepares the local `pi-sdk`/AutoPi extension for the requested Pi Coding Agent `0.70.2` upgrade. Fresh U3 npm readback still reports `@mariozechner/pi-coding-agent@0.70.2` unavailable (`E404`). After explicit operator instruction to install `0.70.0` as a substitute, global Pi was upgraded to `0.70.0` with `--prefer-online`; this is an operator-approved substitute state, not completion of the exact requested `0.70.2` objective. `U1` is complete and reviewed; `U2` local package startup/smoke proof is accepted; the active slice remains `U3` for review of exact-version block plus substitute-install truth.
 
 ## Deterministic Phase Routing Contract (`G1` freeze)
 
