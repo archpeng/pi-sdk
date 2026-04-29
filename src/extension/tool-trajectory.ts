@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AutopilotRuntimeState } from "../autopilot/state.js";
 import type { AutopilotSubstrate, MemoryStoreInput } from "../substrate/types.js";
+import { appendRecalledMemoryRefs, type RecalledMemoryRef } from "./tool-trajectory-recall.js";
 
 export const TOOL_USE_TRAJECTORY_CLAIM_KIND = "tool_use_trajectory_v1";
 const PRODUCER_KIND = "pi";
@@ -13,6 +14,8 @@ type ToolEvent = {
   toolName: string;
   toolCallId?: string | undefined;
   isError?: boolean | undefined;
+  details?: unknown;
+  content?: unknown;
 };
 
 type SessionManagerLike = {
@@ -48,6 +51,7 @@ type ToolUseTrajectory = {
   final_status: FinalStatus;
   mutated: boolean;
   duration_ms: number;
+  recalled_memory_refs?: RecalledMemoryRef[] | undefined;
 };
 
 type TurnState = {
@@ -58,6 +62,7 @@ type TurnState = {
   sideEffects: Set<string>;
   validationChecks: Set<string>;
   governanceDecisions: string[];
+  recalledMemoryRefs: RecalledMemoryRef[];
 };
 
 export interface ToolTrajectoryRecorder {
@@ -87,6 +92,7 @@ export function createToolTrajectoryRecorder(input: {
         sideEffects: new Set(),
         validationChecks: new Set(),
         governanceDecisions: [],
+        recalledMemoryRefs: [],
       };
     }
     return turn;
@@ -102,6 +108,7 @@ export function createToolTrajectoryRecorder(input: {
         sideEffects: new Set(),
         validationChecks: new Set(),
         governanceDecisions: [],
+        recalledMemoryRefs: [],
       };
     },
     recordToolCall(event) {
@@ -116,6 +123,7 @@ export function createToolTrajectoryRecorder(input: {
         return;
       }
       state.successes.add(event.toolName);
+      state.recalledMemoryRefs = appendRecalledMemoryRefs(state.recalledMemoryRefs, event);
       if (VALIDATION_TOOLS.has(event.toolName)) state.validationChecks.add(`tool:${event.toolName}`);
     },
     recordGovernanceDecision(toolName, decision) {
@@ -181,6 +189,7 @@ function buildTrajectory(input: {
     final_status: deriveFinalStatus(input.state),
     mutated: input.state.sideEffects.size > 0,
     duration_ms: Math.max(0, input.endedAtMs - input.state.startedAtMs),
+    ...(input.state.recalledMemoryRefs.length > 0 ? { recalled_memory_refs: input.state.recalledMemoryRefs } : {}),
   };
 }
 
@@ -201,6 +210,8 @@ function buildMemoryStoreInput(trajectory: ToolUseTrajectory): MemoryStoreInput 
       task_kind: trajectory.task_kind,
       final_status: trajectory.final_status,
       evidence_refs: trajectory.evidence_refs.join("|"),
+      recalled_memory_ref_count: `${trajectory.recalled_memory_refs?.length ?? 0}`,
+      ...(trajectory.recalled_memory_refs ? { recalled_memory_ids: trajectory.recalled_memory_refs.map((ref) => ref.memory_id).join("|") } : {}),
     },
   };
 }

@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createToolTrajectoryRecorder, TOOL_USE_TRAJECTORY_CLAIM_KIND } from "../src/extension/tool-trajectory.ts";
+import { MAX_RECALLED_MEMORY_REFS } from "../src/extension/tool-trajectory-recall.ts";
 import type { AutopilotRuntimeState } from "../src/autopilot/state.ts";
 import type { AutopilotSubstrate, MemoryStoreInput } from "../src/substrate/types.ts";
 
-function createRuntime(): AutopilotRuntimeState {
+function createRuntime(stepId = "S1.pi-real-auto-trajectory-writeback-smoke"): AutopilotRuntimeState {
   return {
     goal: "tool-use-behavior-path-library-continuation-2026-04-29",
     mode: "running",
@@ -16,7 +17,7 @@ function createRuntime(): AutopilotRuntimeState {
     dispatchState: "awaiting_report",
     warnings: [],
     activeSlice: {
-      stepId: "S1.pi-real-auto-trajectory-writeback-smoke",
+      stepId,
       owner: "execute-plan",
       state: "READY",
       objectives: ["Prove a real Pi producer turn automatically writes one valid ToolUseTrajectoryV1"],
@@ -124,6 +125,54 @@ test("tool trajectory recorder stores compact ToolUseTrajectoryV1 over bb memory
   assert.equal(trajectory.mutated, true);
   assert.equal(JSON.stringify(trajectory).includes("raw_transcript"), false);
   assert.equal(JSON.stringify(trajectory).includes("raw_tool_output"), false);
+});
+
+test("tool trajectory recorder links bounded recalled refs to the trajectory outcome", async () => {
+  const stored: MemoryStoreInput[] = [];
+  let currentMs = 100;
+  const recorder = createToolTrajectoryRecorder({
+    getRuntime: () => createRuntime("S8.producer-pre-task-recall-feedback-link"),
+    getSubstrate: () => createSubstrate(stored),
+    now: () => currentMs,
+  });
+
+  recorder.startTurn();
+  recorder.recordToolCall({ toolName: "memory_recall" });
+  recorder.recordToolResult({
+    toolName: "memory_recall",
+    isError: false,
+    details: {
+      nodes: [
+        { id: "tm:episodic:a83b3122-14cb-46a0-aca6-330a681fd0aa", memory_class: "tool_semantic", tool_name: "tool_use_promotion_apply" },
+        { metadata: { memory_id: "b95ae4ee-1b96-41c2-b000-dcac2ce30d74", memory_class: "procedural" } },
+        { source_id: "5d803b67-f54c-4543-a007-c05d8116d497", memory_class: "governance" },
+        { source_id: "extra-4", memory_class: "tool_episodic" },
+        { source_id: "extra-5", memory_class: "tool_episodic" },
+        { source_id: "extra-6", memory_class: "tool_episodic" },
+      ],
+    },
+  });
+  recorder.recordToolCall({ toolName: "bash" });
+  recorder.recordToolResult({ toolName: "bash", isError: false });
+  currentMs = 250;
+
+  await recorder.flush({
+    cwd: "/home/peng/dt-git/github/boston-bot-vp",
+    sessionManager: { getSessionFile: () => "/home/peng/.pi/agent/sessions/s8.jsonl" },
+  });
+
+  const trajectory = JSON.parse(stored[0]?.content ?? "{}") as Record<string, unknown>;
+  const refs = trajectory.recalled_memory_refs as Array<Record<string, unknown>>;
+  assert.equal(trajectory.task_family, "S8.producer-pre-task-recall-feedback-link");
+  assert.equal(refs.length, MAX_RECALLED_MEMORY_REFS);
+  assert.deepEqual(refs.map((ref) => ref.memory_id).slice(0, 3), [
+    "a83b3122-14cb-46a0-aca6-330a681fd0aa",
+    "b95ae4ee-1b96-41c2-b000-dcac2ce30d74",
+    "5d803b67-f54c-4543-a007-c05d8116d497",
+  ]);
+  assert.equal(refs.some((ref) => "content" in ref), false);
+  assert.equal(stored[0]?.metadata?.recalled_memory_ref_count, "5");
+  assert.equal(stored[0]?.metadata?.recalled_memory_ids?.includes("extra-6"), false);
 });
 
 test("tool trajectory recorder does not write without a bb substrate", async () => {
