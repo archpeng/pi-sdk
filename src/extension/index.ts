@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@m
 import { Type } from "typebox";
 import { registerAutopilotCommands } from "./command-handlers.js";
 import { buildInteractivePrompt, writeAcceptedSliceCompletion } from "./runtime-dispatch.js";
+import { createToolTrajectoryRecorder } from "./tool-trajectory.js";
 import {
   buildCompactionInstructions,
   buildContinuationContract,
@@ -184,6 +185,10 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
   let runtime: AutopilotRuntimeState | null = null;
   let pendingDispatch = false;
   let compactionInFlight = false;
+  const toolTrajectory = createToolTrajectoryRecorder({
+    getRuntime: () => runtime,
+    getSubstrate: getRuntimeSubstrate,
+  });
 
   const rebuild = (ctx: ExtensionContext) => {
     const restored = restoreInteractiveRuntime(ctx.sessionManager.getBranch() as never[]);
@@ -350,6 +355,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_call", async (event, ctx) => {
+    toolTrajectory.recordToolCall(event);
     if (event.toolName === AUTOPILOT_REPORT_TOOL_NAME) return undefined;
 
     if (runtime?.mode === "running" && runtime.substrateMode === "local") {
@@ -378,6 +384,8 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       return undefined;
     }
 
+    toolTrajectory.recordGovernanceDecision(event.toolName, result.data.decision);
+
     if (shouldBlockToolCall(result.data.decision)) {
       return {
         block: true,
@@ -389,6 +397,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_result", async (event, ctx) => {
+    toolTrajectory.recordToolResult(event);
     if (event.toolName !== AUTOPILOT_REPORT_TOOL_NAME) return;
     if (!isAutopilotToolDetails(event.details)) return;
 
@@ -406,7 +415,13 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
     updateAutopilotUi(ctx, runtime, reports);
   });
 
+  pi.on("turn_start", async () => {
+    toolTrajectory.startTurn();
+  });
+
   pi.on("turn_end", async (_event, ctx) => {
+    await toolTrajectory.flush(ctx);
+
     if (!pendingDispatch) return;
     pendingDispatch = false;
 
