@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { resolveAutopilotPackageRoot } from "../substrate/manifest.js";
 
 export const AUTOPILOT_REPORT_TOOL_NAME = "autopilot_report";
 export const AUTOPILOT_RUN_COMMAND = "autopilot-run";
@@ -54,6 +56,9 @@ export interface AutopilotSkillPhaseRoute {
   dispatchEncoding: "read_skill_file";
   skillName: "plan-creator" | "execute-plan" | "execution-reality-audit";
   skillPath: string;
+  packageSkillPath: string;
+  fallbackSkillPath: string;
+  resolvedFrom: "package" | "agent_dir";
   requiredTools: string[];
   summary: string;
 }
@@ -69,18 +74,68 @@ export interface AutopilotPromptPhaseRoute {
 
 export type AutopilotPhaseRoute = AutopilotSkillPhaseRoute | AutopilotPromptPhaseRoute;
 
+function buildPackageOwnedSkillPath(
+  skillName: AutopilotSkillPhaseRoute["skillName"],
+  packageRoot: string,
+): string {
+  return path.join(packageRoot, "skills", skillName, "SKILL.md");
+}
+
+function buildAgentFallbackSkillPath(
+  skillName: AutopilotSkillPhaseRoute["skillName"],
+  agentDir: string,
+): string {
+  return path.join(agentDir, "skills", skillName, "SKILL.md");
+}
+
+function resolveRoutedSkillSelection(
+  skillName: AutopilotSkillPhaseRoute["skillName"],
+  packageRoot: string,
+  agentDir: string,
+): Pick<AutopilotSkillPhaseRoute, "skillPath" | "packageSkillPath" | "fallbackSkillPath" | "resolvedFrom"> {
+  const packageSkillPath = buildPackageOwnedSkillPath(skillName, packageRoot);
+  const fallbackSkillPath = buildAgentFallbackSkillPath(skillName, agentDir);
+
+  if (existsSync(packageSkillPath)) {
+    return {
+      skillPath: packageSkillPath,
+      packageSkillPath,
+      fallbackSkillPath,
+      resolvedFrom: "package",
+    };
+  }
+
+  if (existsSync(fallbackSkillPath)) {
+    return {
+      skillPath: fallbackSkillPath,
+      packageSkillPath,
+      fallbackSkillPath,
+      resolvedFrom: "agent_dir",
+    };
+  }
+
+  return {
+    skillPath: packageSkillPath,
+    packageSkillPath,
+    fallbackSkillPath,
+    resolvedFrom: "package",
+  };
+}
+
 function buildSkillPhaseRoute(
   phase: AutopilotPhase,
   skillName: AutopilotSkillPhaseRoute["skillName"],
   summary: string,
+  packageRoot: string,
   agentDir: string,
 ): AutopilotSkillPhaseRoute {
+  const selection = resolveRoutedSkillSelection(skillName, packageRoot, agentDir);
   return {
     phase,
     surface: "skill",
     dispatchEncoding: "read_skill_file",
     skillName,
-    skillPath: path.join(agentDir, "skills", skillName, "SKILL.md"),
+    ...selection,
     requiredTools: ["read", AUTOPILOT_REPORT_TOOL_NAME],
     summary,
   };
@@ -106,16 +161,18 @@ export function resolveAutopilotAgentDir(env: NodeJS.ProcessEnv = process.env): 
 }
 
 export function getAutopilotPhaseRouteMatrix(options?: {
+  packageRoot?: string;
   agentDir?: string;
   env?: NodeJS.ProcessEnv;
 }): Record<AutopilotPhase, AutopilotPhaseRoute> {
+  const packageRoot = options?.packageRoot ?? resolveAutopilotPackageRoot();
   const agentDir = options?.agentDir ?? resolveAutopilotAgentDir(options?.env);
   return {
-    master_plan: buildSkillPhaseRoute("master_plan", "plan-creator", "plan the full workstream", agentDir),
-    wave_plan: buildSkillPhaseRoute("wave_plan", "plan-creator", "plan the current wave", agentDir),
-    execute: buildSkillPhaseRoute("execute", "execute-plan", "execute the current slice", agentDir),
-    review: buildSkillPhaseRoute("review", "execution-reality-audit", "review the executed slice", agentDir),
-    replan: buildSkillPhaseRoute("replan", "plan-creator", "replan the current wave or roadmap", agentDir),
+    master_plan: buildSkillPhaseRoute("master_plan", "plan-creator", "plan the full workstream", packageRoot, agentDir),
+    wave_plan: buildSkillPhaseRoute("wave_plan", "plan-creator", "plan the current wave", packageRoot, agentDir),
+    execute: buildSkillPhaseRoute("execute", "execute-plan", "execute the current slice", packageRoot, agentDir),
+    review: buildSkillPhaseRoute("review", "execution-reality-audit", "review the executed slice", packageRoot, agentDir),
+    replan: buildSkillPhaseRoute("replan", "plan-creator", "replan the current wave or roadmap", packageRoot, agentDir),
     closeout: buildPromptPhaseRoute("closeout", "use the built-in repo-local closeout surface"),
   };
 }
@@ -124,11 +181,13 @@ export function resolveAutopilotPhaseRoute(
   phase: AutopilotPhase,
   options?: {
     routeMatrix?: Partial<Record<AutopilotPhase, AutopilotPhaseRoute>>;
+    packageRoot?: string;
     agentDir?: string;
     env?: NodeJS.ProcessEnv;
   },
 ): AutopilotPhaseRoute {
   const routeMatrix = options?.routeMatrix ?? getAutopilotPhaseRouteMatrix({
+    ...(options?.packageRoot ? { packageRoot: options.packageRoot } : {}),
     ...(options?.agentDir ? { agentDir: options.agentDir } : {}),
     ...(options?.env ? { env: options.env } : {}),
   });
@@ -146,6 +205,12 @@ export function resolveAutopilotPhaseRoute(
     if (!route.skillPath.trim()) {
       throw new Error(`deterministic autopilot phase route missing skill path for ${phase}`);
     }
+    if (!route.packageSkillPath.trim()) {
+      throw new Error(`deterministic autopilot phase route missing package skill path for ${phase}`);
+    }
+    if (!route.fallbackSkillPath.trim()) {
+      throw new Error(`deterministic autopilot phase route missing fallback skill path for ${phase}`);
+    }
   } else if (!route.promptSurface.trim()) {
     throw new Error(`deterministic autopilot phase route missing prompt surface for ${phase}`);
   }
@@ -153,6 +218,7 @@ export function resolveAutopilotPhaseRoute(
 }
 
 export function formatAutopilotPhaseRoutingMatrixLines(options?: {
+  packageRoot?: string;
   agentDir?: string;
   env?: NodeJS.ProcessEnv;
 }): string[] {
@@ -169,6 +235,9 @@ export function formatAutopilotCurrentPhaseRouteLines(route: AutopilotPhaseRoute
   if (route.surface === "skill") {
     return [
       `- Deterministic route: \`${route.phase}\` -> skill \`${route.skillName}\`.`,
+      `- Package-owned primary skill path: \`${route.packageSkillPath}\`.`,
+      `- Compatibility fallback skill path: \`${route.fallbackSkillPath}\`.`,
+      `- Resolved skill source for this turn: \`${route.resolvedFrom}\`.`,
       `- Before any other repo work, use \`read\` on \`${route.skillPath}\`.`,
       "- Treat that skill as the governing instructions for this phase.",
       "- Do not substitute another skill or rely on implicit model recall.",
@@ -185,6 +254,7 @@ export function formatAutopilotCurrentPhaseRouteLines(route: AutopilotPhaseRoute
 export function getRequiredToolNamesForAutopilotPhase(
   phase: AutopilotPhase,
   options?: {
+    packageRoot?: string;
     agentDir?: string;
     env?: NodeJS.ProcessEnv;
   },

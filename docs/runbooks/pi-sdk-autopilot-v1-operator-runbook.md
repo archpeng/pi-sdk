@@ -1,13 +1,15 @@
-# pi-sdk Autopilot V1 Operator Runbook
+# AutoPi V1 Operator Runbook
 
 ## Product Surface
 
-`pi-sdk` v1 is a **Pi-native interactive autopilot package with a shared headless driver**.
+`AutoPi` v1 is a **Pi-native interactive autopilot package with a shared headless driver**.
+
+> current product name is `AutoPi`; npm package name is `autopi`; repo-local paths, runbook filename, and some historical doc references still retain legacy `pi-sdk` naming.
 
 - primary UX: current Pi session interactive autopilot
 - secondary UX: CLI/headless driver
 - truth / benchmark / promotion / eval / learning: BB-owned
-- `pi-sdk`: workflow shell / projection / operator UX only
+- `AutoPi`: workflow shell / projection / operator UX only
 
 ## Install
 
@@ -74,6 +76,7 @@ Current interactive autopilot behavior is deterministic, not best-effort:
 Operator-visible consequences:
 
 - the extension dispatches a same-session `[AUTOPILOT ROUTED DISPATCH]` message instead of a generic phase prompt
+- package-owned routed skills under `<packageRoot>/skills/*` are the primary shipped/runtime surface; `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/*` is compatibility fallback only
 - skill-bound phases must be able to resolve a non-empty routed `SKILL.md`
 - selected tools must include `autopilot_report`; skill-bound phases must also include `read`
 - local control-plane truth is single-root at `docs/plan/*`; do not maintain a second `docs/active/*` mirror
@@ -106,6 +109,7 @@ Expected doctor shape:
 - CLI bin points at `./dist/sdk/orchestrator.js`
 - built `dist` entrypoints exist
 - README / runbook files exist
+- routed skill bundle exists under `skills/{plan-creator,execute-plan,execution-reality-audit}/SKILL.md`
 - doctor is honest in both repo checkout and installed-package form; it no longer assumes repo-only plan docs must ship inside the tarball
 
 ## Acceptance Gate
@@ -142,11 +146,13 @@ Use this to verify the tarball includes the bounded v1 surfaces before publishin
 npm run smoke:packaged-install
 ```
 
-This maintenance smoke packs the current repo, installs the tarball into a temp project, and validates bounded installed-package surfaces:
+This maintenance smoke packs the current repo, installs the tarball into a temp project, validates bounded installed-package surfaces, and then proves one clean-room routed phase from the installed artifact:
 
 - CLI `--version`
 - CLI `--doctor`
 - packaged runbook presence
+- packaged routed skill entries under `node_modules/<pkg>/skills/*/SKILL.md`
+- installed-package clean-room routed-phase proof via an alias outside `node_modules` and an isolated/empty `PI_CODING_AGENT_DIR`
 
 ## Pi Startup Autoload Smoke
 
@@ -157,7 +163,7 @@ npm run smoke:pi-autoload
 This proof uses the final-completion canonical route:
 
 1. clean `PI_CODING_AGENT_DIR`
-2. temp project `.pi/settings.json` with the local `pi-sdk` package path
+2. temp project `.pi/settings.json` with the local `autopi` package path (repo checkout path may still be `/home/peng/dt-git/github/pi-sdk`)
 3. started `pi` process in print mode
 4. slash-command proof via `/autopilot-status`
 5. control run without project package settings to show model fallback instead of autoload
@@ -182,12 +188,14 @@ This smoke keeps the same canonical route, then exercises multiple auto-loaded s
 npm run smoke:pi-bb-backed
 ```
 
-This bounded smoke keeps the clean startup autoload route, then proves the BB-backed residual with deterministic local control:
+This bounded smoke keeps the clean startup autoload route, then proves the repo-local clean-room routed path plus the BB-backed residual with deterministic local control:
 
 1. print-mode `/autopilot-run <goal>` establishes the first BB-backed entry signal
-2. print-mode `/autopilot-status` is expected to remain non-persistent in this harness and is reported honestly
-3. a bounded same-process RPC route then proves progression/status truth in the same started `pi` process
-4. the smoke uses a deterministic stub provider plus fake BB MCP endpoints, with explicit timeout/kill boundaries
+2. the harness keeps `PI_CODING_AGENT_DIR` isolated/empty, so success must come from package-owned routed skills rather than host global mirrors
+3. successful output should report `clean-room agent-dir routed skills: <none>` and `routed-skill-sources: package`
+4. print-mode `/autopilot-status` is expected to remain non-persistent in this harness and is reported honestly
+5. a bounded same-process RPC route then proves progression/status truth in the same started `pi` process
+6. the smoke uses a deterministic stub provider plus fake BB MCP endpoints, with explicit timeout/kill boundaries
 
 ## Recovery / Triage
 
@@ -205,13 +213,16 @@ npm run build
    - `bin.pi-sdk-autopilot = ./dist/sdk/orchestrator.js`
    - `pi.extensions` includes `./src/extension/index.ts`
 4. confirm runbook and plan-control docs still exist
+5. confirm the routed skill bundle still exists under `<packageRoot>/skills/{plan-creator,execute-plan,execution-reality-audit}/SKILL.md`
 
 ### If routed interactive dispatch halts before repo work starts
 
 1. confirm the runtime phase still has a deterministic route in `src/autopilot/protocol.ts`
-2. confirm `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/.../SKILL.md` exists and is non-empty for the current skill-bound phase
-3. confirm selected tools still include `autopilot_report`, and include `read` for skill-bound phases
-4. if local mode is active, confirm `docs/plan/README.md` and the active pack still parse as the single repo-local control plane
+2. confirm package-owned `<packageRoot>/skills/.../SKILL.md` exists and is non-empty for the current skill-bound phase
+3. only if the package-owned path is intentionally unavailable, confirm `${PI_CODING_AGENT_DIR:-~/.pi/agent}/skills/.../SKILL.md` exists and is non-empty as the compatibility fallback
+4. confirm selected tools still include `autopilot_report`, and include `read` for skill-bound phases
+5. rerun `node dist/sdk/orchestrator.js --doctor`; if packaged or clean-room proof is suspect, rerun `npm run smoke:packaged-install` and `npm run smoke:pi-bb-backed`
+6. if local mode is active, confirm `docs/plan/README.md` and the active pack still parse as the single repo-local control plane
 
 ### If `autopilot_report` validation fails
 

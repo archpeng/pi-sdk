@@ -88,9 +88,14 @@ export function buildAutopilotPhaseDispatchMessage(
       ? `Bound surface: skill \`${phaseRoute.skillName}\``
       : `Bound surface: prompt \`${phaseRoute.promptSurface}\``,
     `Dispatch encoding: ${phaseRoute.dispatchEncoding}`,
-    phaseRoute.surface === "skill"
-      ? `Resolved skill file: ${phaseRoute.skillPath}`
-      : `Resolved prompt surface: ${phaseRoute.promptSurface}`,
+    ...(phaseRoute.surface === "skill"
+      ? [
+          `Resolved skill file: ${phaseRoute.skillPath}`,
+          `Resolved skill source: ${phaseRoute.resolvedFrom}`,
+          `Package-owned primary: ${phaseRoute.packageSkillPath}`,
+          `Compatibility fallback: ${phaseRoute.fallbackSkillPath}`,
+        ]
+      : [`Resolved prompt surface: ${phaseRoute.promptSurface}`]),
     "",
     phaseRoute.surface === "skill"
       ? "The extension has already preloaded the routed skill file below. Treat it as the governing instructions for this phase."

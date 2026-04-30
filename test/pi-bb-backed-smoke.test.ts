@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { formatPiBbBackedSmokeResult, runPiBbBackedSmoke } from "../src/substrate/pi-bb-backed-smoke.ts";
 
-test("runPiBbBackedSmoke proves deterministic BB-backed entry and same-process progression via bounded RPC, while print mode stays non-persistent", async () => {
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+test("runPiBbBackedSmoke proves deterministic BB-backed entry and same-process progression via bounded RPC, while keeping the agent dir skill-clean", async () => {
   const result = await runPiBbBackedSmoke({
-    packageRoot: "/home/peng/dt-git/github/pi-sdk",
+    packageRoot: REPO_ROOT,
     goal: "prove bb-backed residual",
     timeoutMs: 8_000,
   });
@@ -16,6 +20,13 @@ test("runPiBbBackedSmoke proves deterministic BB-backed entry and same-process p
   assert.equal(result.status.exitCode, 0);
   assert.equal(result.providerPhases.length >= 2, true);
   assert.equal(result.providerPhases.every((phase) => phase === "master_plan"), true);
+  assert.deepEqual(result.agentSkillFiles, []);
+  assert.equal(result.routedSkillSources.length >= 1, true);
+  assert.equal(result.routedSkillSources.every((source) => source === "package"), true);
+  assert.equal(
+    result.routedSkillFiles.every((skillFile) => /\/skills\/plan-creator\/SKILL\.md$/u.test(skillFile)),
+    true,
+  );
   assert.match(result.status.output, /No autopilot state recorded yet\./);
   assert.deepEqual(result.sessionFiles, []);
   assert.deepEqual(result.sessionEntryTypes, []);
@@ -31,7 +42,7 @@ test("runPiBbBackedSmoke proves deterministic BB-backed entry and same-process p
   assert.equal(result.mcpToolCalls.includes("plan_sync"), true);
 });
 
-test("formatPiBbBackedSmokeResult renders the bounded print-mode and rpc-mode proof summary", () => {
+test("formatPiBbBackedSmokeResult renders the clean-room print-mode and rpc-mode proof summary", () => {
   const lines = formatPiBbBackedSmokeResult({
     ok: true,
     packageRoot: "/repo/pi-sdk",
@@ -44,13 +55,18 @@ test("formatPiBbBackedSmokeResult renders the bounded print-mode and rpc-mode pr
     rpcSessionFiles: ["/tmp/session.jsonl"],
     rpcSessionEntryTypes: ["message", "autopilot-runtime-state"],
     providerPhases: ["master_plan", "master_plan"],
+    routedSkillSources: ["package"],
+    routedSkillFiles: ["/repo/pi-sdk/skills/plan-creator/SKILL.md"],
+    agentSkillFiles: [],
     mcpToolCalls: ["memory_recall", "memory_autopilot_status", "workspace_scan", "plan_sync"],
     mcpResourceReads: ["memory://autopilot/decision-authority/current/objective:stub"],
   });
 
   assert.match(lines.join("\n"), /pi-bb-backed-smoke: PASS/);
-  assert.match(lines.join("\n"), /print-status: No autopilot state recorded yet\./);
-  assert.match(lines.join("\n"), /rpc-status: mode: running/);
+  assert.match(lines.join("\n"), /clean-room agent-dir routed skills: <none>/);
+  assert.match(lines.join("\n"), /routed-skill-sources: package/);
+  assert.match(lines.join("\n"), /print-mode status: No autopilot state recorded yet\./);
+  assert.match(lines.join("\n"), /rpc-mode status: mode: running/);
   assert.match(lines.join("\n"), /rpc-session-files: 1/);
   assert.match(lines.join("\n"), /rpc-session-entry-types: message, autopilot-runtime-state/);
   assert.match(lines.join("\n"), /bb-tool-calls: memory_recall, memory_autopilot_status, workspace_scan, plan_sync/);
