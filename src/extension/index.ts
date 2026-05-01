@@ -11,7 +11,7 @@ import {
   extractAutopilotOwnedPathsFromToolCall,
   missingLocalControlPlaneReason,
 } from "./runtime-guardrails.js";
-import { clearAutopilotUi, updateAutopilotUi } from "./runtime-ui.js";
+import { clearAutopilotUi, updateAutopilotUi as renderAutopilotUi } from "./runtime-ui.js";
 import { buildSessionShutdownMessage } from "./session-transition.js";
 import {
   buildMissingToolsReason,
@@ -51,6 +51,15 @@ import {
 } from "../substrate/index.js";
 
 const AUTOPILOT_COMPACT_THRESHOLD_TOKENS = 100_000;
+
+interface ThinkingLevelSelectEvent {
+  level: string;
+  previousLevel?: string;
+}
+
+type ExtensionApiWithThinkingLevelSelect = ExtensionAPI & {
+  on(event: "thinking_level_select", handler: (event: ThinkingLevelSelectEvent, ctx: ExtensionContext) => Promise<void> | void): void;
+};
 
 const AutopilotReportParams = Type.Object({
   phase: StringEnum(AUTOPILOT_PHASES),
@@ -185,12 +194,31 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
   let runtime: AutopilotRuntimeState | null = null;
   let pendingDispatch = false;
   let compactionInFlight = false;
+  let activeThinkingLevel: string | undefined;
+
+  const syncThinkingLevel = () => {
+    try {
+      activeThinkingLevel = pi.getThinkingLevel();
+    } catch {
+      activeThinkingLevel = undefined;
+    }
+  };
+
+  const updateAutopilotUi = (
+    ctx: ExtensionContext,
+    nextRuntime: AutopilotRuntimeState | null,
+    nextReports: AutopilotReport[],
+  ): void => renderAutopilotUi(ctx, nextRuntime, nextReports, { thinkingLevel: activeThinkingLevel });
+
+  syncThinkingLevel();
+
   const toolTrajectory = createToolTrajectoryRecorder({
     getRuntime: () => runtime,
     getSubstrate: getRuntimeSubstrate,
   });
 
   const rebuild = (ctx: ExtensionContext) => {
+    syncThinkingLevel();
     const restored = restoreInteractiveRuntime(ctx.sessionManager.getBranch() as never[]);
     reports = restored.reports;
     runtime = restored.runtime;
@@ -287,6 +315,10 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event, ctx) => rebuild(ctx));
   pi.on("session_tree", async (_event, ctx) => rebuild(ctx));
+  (pi as ExtensionApiWithThinkingLevelSelect).on("thinking_level_select", async (event, ctx) => {
+    activeThinkingLevel = event.level;
+    updateAutopilotUi(ctx, runtime, reports);
+  });
   pi.on("session_compact", async (_event, ctx) => {
     compactionInFlight = false;
     rebuild(ctx);

@@ -75,10 +75,11 @@ test("updateAutopilotUi renders paused runtime status and working-indicator trut
     substrateMode: "local",
   } as const;
 
-  updateAutopilotUi(ctx, runtime, []);
+  updateAutopilotUi(ctx, runtime, [], { thinkingLevel: "xhigh" });
 
   assert.match(statusUpdates.at(-1)?.[1] ?? "", /paused/);
   assert.match(statusUpdates.at(-1)?.[1] ?? "", /wave_plan/);
+  assert.match(statusUpdates.at(-1)?.[1] ?? "", /think:xhigh/);
   assert.equal(widgetUpdates.at(-1)?.[0], "autopilot");
   const indicator = workingIndicators.at(-1) as { frames?: string[] } | undefined;
   assert.deepEqual(indicator?.frames, ["WP‖"]);

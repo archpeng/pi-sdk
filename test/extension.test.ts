@@ -42,6 +42,9 @@ function createFakePi() {
     appendEntry(customType: string, data?: unknown) {
       appendedEntries.push({ customType, data });
     },
+    getThinkingLevel() {
+      return "high";
+    },
     sendMessage() {
       // not needed in these tests
     },
@@ -564,6 +567,22 @@ test("extension registers the Pi-native interactive autopilot commands", () => {
     "autopilot-stop",
   ]);
   assert.equal(tools.some((tool) => tool.name === "autopilot_report"), true);
+});
+
+test("thinking_level_select refreshes active autopilot status", async () => {
+  const { pi, handlers, commands } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(createFakeSubstrate(ctx.cwd));
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+    await runHandlers(handlers, "thinking_level_select", { level: "xhigh", previousLevel: "high" }, ctx);
+
+    assert.match(String(ctx.statusUpdates.at(-1)), /think:xhigh/);
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
 });
 
 test("/autopilot-run queues the first phase prompt in the current session", async () => {

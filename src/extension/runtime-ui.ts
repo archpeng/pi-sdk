@@ -14,8 +14,16 @@ const AUTOPILOT_PHASE_LABELS: Record<AutopilotRuntimeState["phase"], string> = {
 
 type WorkingIndicatorTone = "accent" | "success" | "warning" | "muted" | "dim";
 
+interface AutopilotUiOptions {
+  thinkingLevel?: string | undefined;
+}
+
 function latestReport(reports: AutopilotReport[]): AutopilotReport | undefined {
   return reports.at(-1);
+}
+
+function formatThinkingLevelSuffix(thinkingLevel: string | undefined): string {
+  return thinkingLevel ? ` · think:${thinkingLevel}` : "";
 }
 
 function workingIndicatorTone(runtime: AutopilotRuntimeState): WorkingIndicatorTone {
@@ -85,6 +93,7 @@ export function updateAutopilotUi(
   ctx: ExtensionContext,
   runtime: AutopilotRuntimeState | null,
   reports: AutopilotReport[],
+  options: AutopilotUiOptions = {},
 ): void {
   if (!ctx.hasUI) return;
 
@@ -106,7 +115,7 @@ export function updateAutopilotUi(
       "autopilot",
       ctx.ui.theme.fg(
         tone,
-        `🤖 ${runtime.mode} · ${runtime.phase} · ${runtime.substrateMode ?? "unknown"} · w${runtime.currentWave}/c${runtime.currentCycle}`,
+        `🤖 ${runtime.mode} · ${runtime.phase} · ${runtime.substrateMode ?? "unknown"} · w${runtime.currentWave}/c${runtime.currentCycle}${formatThinkingLevelSuffix(options.thinkingLevel)}`,
       ),
     );
 
@@ -117,7 +126,7 @@ export function updateAutopilotUi(
     return;
   }
 
-  ctx.ui.setStatus("autopilot", ctx.ui.theme.fg("accent", `🤖 ${latest?.phase ?? "autopilot"} · ${latest?.status ?? "-"}`));
+  ctx.ui.setStatus("autopilot", ctx.ui.theme.fg("accent", `🤖 ${latest?.phase ?? "autopilot"} · ${latest?.status ?? "-"}${formatThinkingLevelSuffix(options.thinkingLevel)}`));
   if (latest) {
     ctx.ui.setWidget("autopilot", [
       `${ctx.ui.theme.fg("accent", "Autopilot")} ${latest.phase} / ${latest.status}`,
