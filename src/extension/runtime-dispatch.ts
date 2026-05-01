@@ -2,6 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import {
+  AUTOPILOT_CLOSEOUT_PROMPT_SURFACE,
   type AutopilotActiveSlice,
   type AutopilotPhase,
   type AutopilotPhaseRoute,
@@ -18,6 +19,7 @@ import {
 } from "../autopilot/state.js";
 import {
   buildPhaseHydrationSections,
+  CONTROL_PLANE_PACK_COMPLETE_STAGE_ID,
   getRuntimeSubstrate,
   loadRunWorkspaceSnapshot,
   preparePhaseHydration,
@@ -218,6 +220,46 @@ export async function buildInteractivePrompt(
   };
 }
 
+function shouldWriteAcceptedSliceCompletion(report: AutopilotReport): boolean {
+  if (report.status === "done") return true;
+  return report.phase === "review" && report.status === "completed";
+}
+
+function toRuntimeActiveSlice(stage: ActiveControlPlaneSnapshot["activeStage"]): AutopilotActiveSlice {
+  return {
+    stepId: stage.stageId,
+    owner: stage.owner,
+    state: stage.state,
+    objectives: [...stage.objectives],
+    requiredDeliverables: [...stage.requiredDeliverables],
+    ...(stage.doneWhen ? { doneWhen: [...stage.doneWhen] } : {}),
+    ...(stage.stopBoundary ? { stopBoundary: [...stage.stopBoundary] } : {}),
+    avoid: [...stage.avoid],
+  };
+}
+
+function validatePostWritebackSnapshot(
+  snapshot: ActiveControlPlaneSnapshot,
+  expectedActiveSlice: string,
+  expectedIntendedHandoff: string,
+): string | null {
+  if (snapshot.readme.activeSlice !== expectedActiveSlice) {
+    return `repo-local control-plane writeback expected README active slice ${expectedActiveSlice} but found ${snapshot.readme.activeSlice}`;
+  }
+  if (snapshot.readme.intendedHandoff !== expectedIntendedHandoff) {
+    return `repo-local control-plane writeback expected README intended handoff ${expectedIntendedHandoff} but found ${snapshot.readme.intendedHandoff}`;
+  }
+  if (snapshot.activeStage.stageId !== expectedActiveSlice) {
+    return `repo-local control-plane writeback expected active stage ${expectedActiveSlice} but found ${snapshot.activeStage.stageId}`;
+  }
+  if (expectedActiveSlice === CONTROL_PLANE_PACK_COMPLETE_STAGE_ID) {
+    if (snapshot.activeStage.owner !== "closeout" || snapshot.activeStage.state !== "DONE") {
+      return "repo-local terminal writeback must parse as PACK_COMPLETE owned by closeout with DONE state";
+    }
+  }
+  return null;
+}
+
 export async function writeAcceptedSliceCompletion(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -236,7 +278,7 @@ export async function writeAcceptedSliceCompletion(
   if (report.stepId !== runtime.activeSlice.stepId) {
     return runtime;
   }
-  if (report.status !== "completed" && report.status !== "done") {
+  if (!shouldWriteAcceptedSliceCompletion(report)) {
     return runtime;
   }
 
@@ -249,11 +291,23 @@ export async function writeAcceptedSliceCompletion(
     return halted;
   }
 
-  const nextStage = resolveNextStageFromStageOrder(
-    snapshot.data.stageOrder,
-    snapshot.data.sliceDefinitions,
-    runtime.activeSlice.stepId,
-  );
+  const nextStage = report.status === "done"
+    ? null
+    : resolveNextStageFromStageOrder(
+        snapshot.data.stageOrder,
+        snapshot.data.sliceDefinitions,
+        runtime.activeSlice.stepId,
+      );
+  if (!nextStage && report.status !== "done") {
+    const reason = `repo-local control-plane has no next stage after ${runtime.activeSlice.stepId}; refusing non-terminal PACK_COMPLETE writeback`;
+    const halted = haltInteractiveRuntime(runtime, reason);
+    persistRuntime(pi, halted);
+    notify(ctx, reason, "warning");
+    return halted;
+  }
+
+  const expectedActiveSlice = nextStage?.stageId ?? CONTROL_PLANE_PACK_COMPLETE_STAGE_ID;
+  const intendedHandoff = nextStage ? nextStage.owner : AUTOPILOT_CLOSEOUT_PROMPT_SURFACE;
   const verificationEvidence = [
     ...report.evidence,
     ...report.artifacts,
@@ -262,7 +316,7 @@ export async function writeAcceptedSliceCompletion(
   const writeback = await substrate.controlPlane.advance({
     completedSlice: runtime.activeSlice.stepId,
     nextActiveSlice: nextStage?.stageId ?? null,
-    intendedHandoff: snapshot.data.readme.intendedHandoff,
+    intendedHandoff,
     closeoutSummary: report.summary,
     verificationEvidence,
     nextStage,
@@ -276,23 +330,26 @@ export async function writeAcceptedSliceCompletion(
     return halted;
   }
 
+  const postWritebackSnapshot = await substrate.controlPlane.snapshot();
+  if (!postWritebackSnapshot.ok || !postWritebackSnapshot.data) {
+    const reason = `repo-local control-plane writeback produced unparsable docs/plan for ${expectedActiveSlice}: ${postWritebackSnapshot.summary}`;
+    const halted = haltInteractiveRuntime(runtime, reason);
+    persistRuntime(pi, halted);
+    notify(ctx, reason, "warning");
+    return halted;
+  }
+  const postWritebackMismatch = validatePostWritebackSnapshot(postWritebackSnapshot.data, expectedActiveSlice, intendedHandoff);
+  if (postWritebackMismatch) {
+    const halted = haltInteractiveRuntime(runtime, postWritebackMismatch);
+    persistRuntime(pi, halted);
+    notify(ctx, postWritebackMismatch, "warning");
+    return halted;
+  }
+
   const updatedRuntime = registerAutopilotOwnedPaths(
     {
       ...runtime,
-      ...(nextStage
-        ? {
-            activeSlice: {
-              stepId: nextStage.stageId,
-              owner: nextStage.owner,
-              state: nextStage.state,
-              objectives: [...nextStage.objectives],
-              requiredDeliverables: [...nextStage.requiredDeliverables],
-              ...(nextStage.doneWhen ? { doneWhen: [...nextStage.doneWhen] } : {}),
-              ...(nextStage.stopBoundary ? { stopBoundary: [...nextStage.stopBoundary] } : {}),
-              avoid: [...nextStage.avoid],
-            },
-          }
-        : { activeSlice: undefined }),
+      activeSlice: toRuntimeActiveSlice(postWritebackSnapshot.data.activeStage),
     },
     writeback.data.updatedFiles,
   );

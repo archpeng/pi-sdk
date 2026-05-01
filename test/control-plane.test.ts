@@ -446,6 +446,157 @@ stop_boundary:
   assert.match(updated.worksetMarkdown, /stop_boundary:[\s\S]*stop if writeback drops stop-law fields from STATUS or WORKSET/);
 });
 
+test("terminal writeback renders parser-compatible PACK_COMPLETE active stage", () => {
+  const repoRoot = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-control-plane-terminal-"));
+  const docsPlan = path.join(repoRoot, "docs", "plan");
+  mkdirSync(docsPlan, { recursive: true });
+
+  writeFileSync(
+    path.join(docsPlan, "README.md"),
+    `# pi-sdk Plan Control Plane
+
+## Active Pack
+
+- \`docs/plan/active_PLAN.md\`
+- \`docs/plan/active_STATUS.md\`
+- \`docs/plan/active_WORKSET.md\`
+
+## Current Active Slice
+
+- \`T1\`
+
+## Intended Handoff
+
+- \`execute-plan\`
+`,
+    "utf8",
+  );
+  writeFileSync(
+    path.join(docsPlan, "active_PLAN.md"),
+    `# Example Plan
+
+#### \`T1\` — terminal-local-writeback
+
+- Owner: \`execute-plan\`
+- State: \`READY\`
+- Priority: \`highest\`
+
+目标：
+
+- prove terminal writeback remains parser-compatible
+
+交付物：
+
+1. terminal active stage sentinel
+
+done_when:
+
+1. terminal writeback parses after PACK_COMPLETE
+
+stop_boundary:
+
+1. stop if terminal writeback removes Active Stage parser truth
+
+必须避免：
+
+1. prose-only pack completion
+`,
+    "utf8",
+  );
+  writeFileSync(
+    path.join(docsPlan, "active_STATUS.md"),
+    `# Example Status
+
+## Current Step
+
+- active_step: \`T1\`
+
+## Planned Stages
+
+- [ ] \`T1\` terminal-local-writeback
+
+## Immediate Focus
+
+### \`T1\`
+
+- Owner: \`execute-plan\`
+- State: \`READY\`
+- Priority: \`highest\`
+
+目标：
+
+- prove terminal writeback remains parser-compatible
+`,
+    "utf8",
+  );
+  writeFileSync(
+    path.join(docsPlan, "active_WORKSET.md"),
+    `# Example Workset
+
+## Stage Order
+
+- [ ] \`T1\` terminal-local-writeback
+
+## Active Stage
+
+### \`T1\`
+
+- Owner: \`execute-plan\`
+- State: \`READY\`
+- Priority: \`highest\`
+
+目标：
+
+- prove terminal writeback remains parser-compatible
+
+必须交付：
+
+1. terminal active stage sentinel
+
+done_when:
+
+1. terminal writeback parses after PACK_COMPLETE
+
+stop_boundary:
+
+1. stop if terminal writeback removes Active Stage parser truth
+
+必须避免：
+
+1. prose-only pack completion
+`,
+    "utf8",
+  );
+
+  const transition = buildControlPlaneProgressTransition({
+    completedSlice: "T1",
+    nextActiveSlice: null,
+    intendedHandoff: "autopilot-closeout",
+    closeoutSummary: "T1 completed the objective",
+    verificationEvidence: ["terminal done report"],
+  });
+  const updated = applyControlPlaneProgressWriteback({
+    readmeMarkdown: readFileSync(path.join(docsPlan, "README.md"), "utf8"),
+    statusMarkdown: readFileSync(path.join(docsPlan, "active_STATUS.md"), "utf8"),
+    worksetMarkdown: readFileSync(path.join(docsPlan, "active_WORKSET.md"), "utf8"),
+    transition,
+    nextStage: null,
+  });
+
+  writeFileSync(path.join(docsPlan, "README.md"), updated.readmeMarkdown, "utf8");
+  writeFileSync(path.join(docsPlan, "active_STATUS.md"), updated.statusMarkdown, "utf8");
+  writeFileSync(path.join(docsPlan, "active_WORKSET.md"), updated.worksetMarkdown, "utf8");
+
+  const snapshot = loadLocalControlPlaneSnapshot(docsPlan, repoRoot);
+
+  assert.equal(snapshot.readme.activeSlice, "PACK_COMPLETE");
+  assert.equal(snapshot.readme.intendedHandoff, "autopilot-closeout");
+  assert.equal(snapshot.activeStage.stageId, "PACK_COMPLETE");
+  assert.equal(snapshot.activeStage.owner, "closeout");
+  assert.equal(snapshot.activeStage.state, "DONE");
+  assert.match(updated.worksetMarkdown, /## Active Stage[\s\S]*### `PACK_COMPLETE`/);
+});
+
 test("resolveNextStageFromStageOrder returns the next stage metadata from ordered stage ids", () => {
   const nextStage = resolveNextStageFromStageOrder(
     ["C1", "C2", "C3", "D1"],

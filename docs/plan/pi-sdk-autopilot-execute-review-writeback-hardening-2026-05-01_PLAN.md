@@ -6,7 +6,7 @@ Make extension-driven local autopilot safe across execute -> review boundaries b
 
 ## Scope
 
-1. Repair this hardening pack's README / PLAN / STATUS / WORKSET truth so it reflects the current dirty `pi-sdk` source/dependency changes and the chosen next route before cross-repo recovery starts.
+1. Repair this hardening pack's README / PLAN / STATUS / WORKSET truth so prior dirty `pi-sdk` source/dependency changes are classified and the chosen next route is explicit before cross-repo recovery starts.
 2. Recover the current downstream `pos-lite-cashier` order-runtime roadmap pack from the execute-completed writeback drift by adding a parser-compatible explicit review stage.
 3. Add `pi-sdk` regression coverage for the execute/completed -> review boundary and local control-plane writeback behavior.
 4. Change `pi-sdk` writeback semantics so acceptance-owned Stage Order progression is gated by review, not by execute completion.
@@ -47,7 +47,7 @@ The current diagnosis was confirmed against `/home/peng/dt-git/github/pi-sdk` be
 
 ## Exit Criteria
 
-1. This hardening pack's README / PLAN / STATUS / WORKSET is parser-compatible, names a single active slice, and records whether the current dirty pi-sdk source/dependency changes belong to this pack or must be split out.
+1. This hardening pack's README / PLAN / STATUS / WORKSET is parser-compatible, names a single active slice, and records whether prior/current pi-sdk source/dependency changes belong to this pack or must be split out.
 2. The `pos-lite-cashier` active local control plane is parser-compatible again, with active slice `OR-3D.member-baseline-review` or an equivalently explicit review stage owned by `execution-reality-audit`.
 3. `pi-sdk` tests prove `execute/completed` does not advance Stage Order or write `PACK_COMPLETE` before review.
 4. `pi-sdk` tests prove `review/completed` is the accepted-slice progression point and safely activates the next stage when one exists.
@@ -73,11 +73,11 @@ The current diagnosis was confirmed against `/home/peng/dt-git/github/pi-sdk` be
 
 ## Master Plan
 
-This plan deliberately starts with a current-pack reconciliation slice because the working tree now contains pi-sdk source/dependency changes that are not yet reflected in this pack's active slice. It then uses an explicit review-stage workaround because the currently installed extension behavior can still advance Stage Order on execute completion. Once the SDK hardening is implemented and loaded, future packs can return to same-slice execute -> review semantics.
+This plan deliberately starts with a current-pack reconciliation slice because the pack was created while pi-sdk source/dependency changes were present and needed explicit classification before downstream recovery. The current repo is clean at commit `2d2e61c`, so ERW0 now validates that classification and hands off to the first executable recovery wave. The plan then uses an explicit review-stage workaround because the currently installed extension behavior can still advance Stage Order on execute completion. Once the SDK hardening is implemented and loaded, future packs can return to same-slice execute -> review semantics.
 
 ### Wave 0 — plan/workset reconcile
 
-Repair this pack's machine truth, classify current dirty pi-sdk changes, and decide the next executable route without touching downstream repos.
+Completed: this pack's machine truth now classifies prior/current pi-sdk changes and selects the next executable route without touching downstream repos.
 
 ### Wave 1 — downstream recovery
 
@@ -100,7 +100,7 @@ Update the runtime contract documentation, run the full validation ladder, and c
 #### `ERW0.plan-workset-reconcile` — current-pack-truth-repair
 
 - Owner: `plan-creator`
-- State: `READY`
+- State: `COMPLETE`
 - Priority: `highest`
 
 目标：
@@ -137,7 +137,7 @@ stop_boundary:
 #### `ERW1.pos-lite-review-stage-repair` — downstream-explicit-review-stage
 
 - Owner: `execute-plan`
-- State: `READY`
+- State: `COMPLETE`
 - Priority: `highest`
 
 目标：
@@ -174,7 +174,7 @@ stop_boundary:
 #### `ERW1.review` — downstream-recovery-review
 
 - Owner: `execution-reality-audit`
-- State: `QUEUED`
+- State: `COMPLETE`
 - Priority: `highest`
 
 目标：
@@ -207,7 +207,7 @@ stop_boundary:
 #### `ERW2.phase-gated-writeback` — review-owned-accepted-slice-writeback
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `COMPLETE`
 - Priority: `high`
 
 目标：
@@ -243,7 +243,7 @@ stop_boundary:
 #### `ERW2.review` — phase-gate-review
 
 - Owner: `execution-reality-audit`
-- State: `QUEUED`
+- State: `COMPLETE`
 - Priority: `high`
 
 目标：
@@ -276,7 +276,7 @@ stop_boundary:
 #### `ERW3.pack-complete-parser-guard` — terminal-writeback-safety
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `COMPLETE`
 - Priority: `high`
 
 目标：
@@ -312,7 +312,7 @@ stop_boundary:
 #### `ERW3.review` — terminal-guard-review
 
 - Owner: `execution-reality-audit`
-- State: `QUEUED`
+- State: `COMPLETE`
 - Priority: `high`
 
 目标：
@@ -345,7 +345,7 @@ stop_boundary:
 #### `ERW4.docs-smoke-closeout` — contract-docs-and-release-readiness
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `COMPLETE`
 - Priority: `medium`
 
 目标：
@@ -380,7 +380,7 @@ stop_boundary:
 #### `ERW4.review` — final-hardening-review
 
 - Owner: `execution-reality-audit`
-- State: `QUEUED`
+- State: `READY`
 - Priority: `medium`
 
 目标：

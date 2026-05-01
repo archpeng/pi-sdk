@@ -1,16 +1,16 @@
 # PI SDK Autopilot Execute/Review Writeback Hardening 2026-05-01 Status
 
-- status: `active`
-- current_step: `ERW0.plan-workset-reconcile` — repair this hardening pack's active truth around the current dirty pi-sdk tree
-- next_step: `ERW1.pos-lite-review-stage-repair` — downstream recovery only after current pack truth is reconciled
-- blockers: `current dirty pi-sdk source/dependency/test files must be classified before downstream recovery or SDK hardening starts`
-- gate_state: `pi-sdk code audit confirmed execute/completed writeback advances Stage Order before review; current pack now enters a plan/workset reconciliation slice before implementation`
-- latest_evidence: Current working tree includes hardening pack docs plus dirty `package.json`, `package-lock.json`, `src/extension/index.ts`, `src/extension/runtime-ui.ts`, `test/extension-support.test.ts`, and `test/extension.test.ts`; this pack must classify those changes and keep parser truth aligned before executing ERW1/ERW2.
+- status: `complete`
+- current_step: `PACK_COMPLETE` — terminal parser truth after ERW4 final review acceptance
+- next_step: repo-local closeout prompt surface (`autopilot-closeout`)
+- blockers: `none for terminal parser truth; operator approval required only if applying the fix to an already-running Pi UI session is requested`
+- gate_state: `ERW0 reconciled; ERW1 downstream parser recovery/review accepted; ERW2 phase-gated writeback/review accepted; ERW3 terminal/parser guard/review accepted; ERW4 docs/smoke/reload execution and final review complete`
+- latest_evidence: ERW4 final review accepted the hardening pack; active docs/plan truth is now parser-compatible `PACK_COMPLETE` with closeout ownership and recorded reload residuals without claiming current-session deployment.
 
 ## Current State
 
-- state: `ACTIVE`
-- owner: `plan-creator`
+- state: `DONE`
+- owner: `autopilot-closeout`
 - route: `ERW0 plan/workset reconcile -> ERW1 recovery -> ERW1 review -> ERW2 phase gate -> ERW2 review -> ERW3 terminal/parser guard -> ERW3 review -> ERW4 docs/smoke -> ERW4 review`
 - repo: `/home/peng/dt-git/github/pi-sdk`
 - workstream: `autopilot-execute-review-writeback-hardening`
@@ -19,129 +19,122 @@
 
 ## Current Step
 
-- active_step: `ERW0.plan-workset-reconcile`
-- mode: `ready-for-plan-creator`
+- active_step: `PACK_COMPLETE`
+- mode: `terminal`
 - active_root: `docs/plan/`
 
 ## Planned Stages
 
-- [ ] `ERW0.plan-workset-reconcile` current hardening pack truth repair
-- [ ] `ERW1.pos-lite-review-stage-repair` downstream explicit review-stage repair
-- [ ] `ERW1.review` review downstream recovery
-- [ ] `ERW2.phase-gated-writeback` review-owned accepted-slice writeback
-- [ ] `ERW2.review` review phase gate
-- [ ] `ERW3.pack-complete-parser-guard` terminal writeback and parser guard
-- [ ] `ERW3.review` review terminal/parser guard
-- [ ] `ERW4.docs-smoke-closeout` docs, validation, smoke, reload guidance
-- [ ] `ERW4.review` final hardening review
+- [x] `ERW0.plan-workset-reconcile` current hardening pack truth repair
+- [x] `ERW1.pos-lite-review-stage-repair` downstream explicit review-stage repair
+- [x] `ERW1.review` review downstream recovery
+- [x] `ERW2.phase-gated-writeback` review-owned accepted-slice writeback
+- [x] `ERW2.review` review phase gate
+- [x] `ERW3.pack-complete-parser-guard` terminal writeback and parser guard
+- [x] `ERW3.review` review terminal/parser guard
+- [x] `ERW4.docs-smoke-closeout` docs, validation, smoke, reload guidance
+- [x] `ERW4.review` final hardening review
 
 ## Immediate Focus
 
-### `ERW0.plan-workset-reconcile`
+### `PACK_COMPLETE`
 
-- Owner: `plan-creator`
-- State: `READY`
-- Priority: `highest`
+- Owner: `closeout`
+- State: `DONE`
+- Priority: `terminal`
 
 目标：
 
-- Repair this hardening pack's README / PLAN / STATUS / WORKSET truth around the current dirty `pi-sdk` tree before executing downstream recovery or SDK source hardening.
+- close the pack through the repo-local closeout prompt surface
 
 必须交付：
 
-1. Inspect current `pi-sdk` dirty files and classify whether each changed source/dependency/test file belongs to this hardening pack, the paused `0.70.x` upgrade pack, or an unrelated slice.
-2. Update this pack so the active slice, stage order, machine state, workset queue, and latest evidence match the chosen current route.
-3. Keep downstream `pos-lite-cashier` files read-only in this reconciliation slice.
-4. Validate this pack with real `loadLocalControlPlaneSnapshot`, `plan_sync`, `npx tsx --test test/control-plane.test.ts`, and `git diff --check`.
-
-done_when:
-
-1. README, STATUS, and WORKSET agree on one active slice and intended handoff for this hardening pack.
-2. Current dirty `pi-sdk` files are explicitly classified as in-scope, out-of-scope, or requiring a separate follow-up before ERW1/ERW2 execution starts.
-3. `loadLocalControlPlaneSnapshot('docs/plan', process.cwd())` parses this hardening pack with no missing active stage or missing PLAN definitions.
-4. `plan_sync /home/peng/dt-git/github/pi-sdk/docs/plan`, `npx tsx --test test/control-plane.test.ts`, and `git diff --check` pass.
-
-stop_boundary:
-
-1. Stop if current dirty `pi-sdk` source/dependency changes cannot be classified without code review beyond plan/workset repair.
-2. Stop if this pack cannot stay single-root under `docs/plan/*`.
-3. Stop if parser truth still points at downstream recovery while the actual active work is current-pack reconciliation.
-4. Stop if repair would require editing downstream `pos-lite-cashier` files.
+1. final closeout summary and residual handoff
 
 必须避免：
 
-1. Starting downstream `pos-lite-cashier` recovery from ERW0.
-2. Starting pi-sdk source hardening or dependency upgrade implementation from ERW0.
-3. Marking the hardening plan complete from a plan/workset reconciliation pass.
-
+1. dispatching another execute/review phase from terminal parser truth
 ## Code Audit Findings
 
-| finding                          | current evidence                                                                                                                                         | implication                                                                                       |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| acceptance writeback is too early | `src/extension/index.ts` calls `writeAcceptedSliceCompletion(...)` on every `autopilot_report` result before `advanceInteractiveRuntime(...)`              | execute reports can mutate control-plane truth before review                                      |
-| phase gate is missing             | `src/extension/runtime-dispatch.ts` checks `completed/done` status but not `report.phase === review`                                                     | any phase with an active-slice completed report can advance Stage Order                           |
-| terminal guard is missing         | `resolveNextStageFromStageOrder(...)` returns `null`; `applyControlPlaneProgressWriteback(...)` renders `PACK_COMPLETE` and `Active Stage: none`          | last execute slice can remove active-stage parser truth before review                             |
-| tests encode old behavior         | `test/extension-local-proof.test.ts` expects `execute` report for `D2` to advance docs/plan to `D3` before review                                        | current green suite proves coverage gap rather than safety                                        |
-| parser validation gap exists      | downstream `plan_sync` / trio / score-style checks can pass while real `loadLocalControlPlaneSnapshot` fails with `Missing active stage heading`          | post-writeback parser snapshot must be a hard validation surface                                  |
+| finding                                  | current evidence                                                                                                                                          | implication                                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| phase gate implemented                   | `src/extension/runtime-dispatch.ts` now allows accepted-slice writeback only for `review/completed` or `done` reports                                      | ordinary `execute/completed` no longer advances Stage Order in local mode        |
+| execute advancement regression replaced  | `test/extension.test.ts` asserts execute completion does not call local control-plane advance and dispatches review for the same active slice               | the old execute-time advancement contract is no longer encoded as expected truth |
+| real docs/plan proof updated             | `test/extension-local-proof.test.ts` asserts temp `docs/plan` remains on `D2` after execute and advances to `D3` only after review                         | parser-owned truth now has same-slice review coverage                            |
+| terminal guard implemented               | `src/extension/runtime-dispatch.ts` refuses non-terminal no-next-stage writeback, while `src/substrate/control-plane.ts` renders parser-compatible `PACK_COMPLETE` only for terminal paths | last-stage parser safety has ERW3 review coverage and final ERW4 validation      |
+| parser validation hardened               | `writeAcceptedSliceCompletion(...)` reloads the repo-local control-plane snapshot after writeback and validates expected active stage plus intended handoff | parser-readback is now a hard local writeback proof surface                      |
+| handoff drift closed during review        | ERW3 review found and fixed stale README handoff risk by deriving non-terminal writeback handoff from `nextStage.owner` and validating it after writeback | ERW4 activation will not retain the prior review handoff                         |
 
 ## ERW0 Dirty File Classification
 
 | file / group                                                                                                       | ERW0 classification                          | handling before ERW1 / ERW2                                                                                 |
 | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `docs/plan/README.md` and `pi-sdk-autopilot-execute-review-writeback-hardening-2026-05-01_{PLAN,STATUS,WORKSET}.md` | in-scope for ERW0 plan/workset repair        | keep and validate as the active parser truth                                                                 |
-| `package.json`, `package-lock.json`                                                                                 | out-of-scope for ERW0 and ERW1               | classify as dependency/upgrade work; do not treat as writeback-hardening evidence without explicit replan     |
-| `src/extension/index.ts`, `src/extension/runtime-ui.ts`                                                              | out-of-scope for ERW0 and ERW1 as code edits | current diff appears to add thinking-level UI status behavior, not execute/review writeback hardening         |
-| `test/extension-support.test.ts`, `test/extension.test.ts`                                                           | out-of-scope for ERW0 and ERW1 as tests      | current diff appears paired with thinking-level UI status behavior; keep separate from ERW2 unless replanned  |
+| current non-control-plane dirty state                                                                                | no current dirty `pi-sdk` source/dependency/test files | ERW0 only edits active pack docs; no source/dependency dirty split is required                                |
+| `docs/plan/README.md` and `pi-sdk-autopilot-execute-review-writeback-hardening-2026-05-01_{PLAN,STATUS,WORKSET}.md` | in-scope for ERW0 plan/workset repair        | committed in `2d2e61c`; keep and validate as the active parser truth                                         |
+| `package.json`, `package-lock.json`                                                                                 | out-of-scope for ERW0 and ERW1               | committed Pi `0.71.x` dependency upgrade; do not treat as writeback-hardening evidence without explicit replan |
+| `src/extension/index.ts`, `src/extension/runtime-ui.ts`                                                              | out-of-scope for ERW0 and ERW1 as code edits | committed thinking-level UI status behavior, not execute/review writeback hardening                          |
+| `test/extension-support.test.ts`, `test/extension.test.ts`                                                           | out-of-scope for ERW0 and ERW1 as tests      | committed thinking-level UI status coverage; keep separate from ERW2 unless replanned                        |
 | `/home/peng/dt-git/frontend/pos-lite-cashier/**`                                                                    | read-only for ERW0                            | ERW1 may edit downstream `docs/plan/*`; ERW0 must not                                                        |
 
-ERW0 route decision: keep this hardening pack active, but do not let the current dependency/thinking-level diffs count as completion of ERW2/ERW3. After ERW0 validation, either execute ERW1 downstream recovery or explicitly replan if those out-of-scope diffs must be handled first.
+ERW0 route decision: accepted for handoff. The committed dependency/thinking-level changes remain excluded from ERW2/ERW3 evidence, and the next bounded route is ERW1 downstream parser recovery unless a fresh dirty state appears.
 
 ## Latest Verification
 
-- `workspace_scan` plus `git status --short` confirmed `/home/peng/dt-git/github/pi-sdk` is on branch `feat/packaged-routed-skills-productization` with existing dirty plan/runtime/test files; downstream `pos-lite-cashier` has 6 changed files from the OR-3D execute attempt. ERW0 classifies current pi-sdk dirty files before any downstream recovery or SDK source hardening.
-- `plan_sync /home/peng/dt-git/github/pi-sdk/docs/plan` showed previous active U3 pack pending (`7 items / 5 done / 2 pending` in STATUS; `4 items / 2 done / 2 pending` in WORKSET).
-- `npx tsx -e "loadLocalControlPlaneSnapshot('docs/plan', process.cwd())"` parsed the current hardening pack with active stage `ERW1.pos-lite-review-stage-repair`, owner `execute-plan`, intended handoff `execute-plan`, 8 stage-order entries, and no missing PLAN definitions.
-- `npx tsx --test test/extension.test.ts test/extension-local-proof.test.ts test/control-plane.test.ts` passed (`51` tests), confirming existing tests do not catch the downstream failure mode.
-- Downstream parser probe against `pos-lite-cashier/docs/plan` failed with `Missing active stage heading`, confirming ERW1 is required before autopilot can resume review there.
+- Documentation alignment is current: `README.md`, `docs/architecture.md`, and `docs/plan/README.md` now state that ordinary `execute/completed` does not advance Stage Order; accepted-slice writeback is owned by `review/completed` or objective-terminal `done`, with repo-local parser readback after writeback.
+- Full SDK validation passed: `npm run typecheck`, `npm test` (119 tests), and `npm run build`.
+- Feasible smoke validation passed: `npm run smoke:pi-commands`, `npm run smoke:pi-bb-backed`, and `npm run smoke:packaged-install`; packaged install had one transient npm registry/cache `ETARGET @protobufjs/utf8@^1.1.1` failure and passed on immediate retry.
+- Parser proof is current: `loadLocalControlPlaneSnapshot('docs/plan', process.cwd())` reports activeSlice/activeStage `ERW4.review`, owner `execution-reality-audit`, state `READY`, intendedHandoff `execution-reality-audit`, stageCount `9`, missing `[]`.
+- Downstream recovery remains separate and unchanged by ERW4 execution; OR-3D member behavior is still not accepted by this pack.
+- Reload residual is explicit: local source/build/package smoke evidence does not prove the currently running Pi UI session has loaded these changes; applying the fix to an installed/current session requires an operator-approved reload/reinstall/restart or follow-up release/install slice if review decides it is needed.
 
-## Current Wave Plan
+## ERW4 Execute Evidence / Review Handoff
 
-Selected bounded slice: `ERW0.plan-workset-reconcile`.
+Completed execute slice: `ERW4.docs-smoke-closeout`.
 
-Linear execution steps:
+Linear execution result:
 
-1. Re-read this pack's README / PLAN / STATUS / WORKSET and current `git diff --name-only`.
-2. Classify existing dirty files: hardening pack docs, `package.json` / `package-lock.json`, `src/extension/index.ts`, `src/extension/runtime-ui.ts`, `test/extension-support.test.ts`, and `test/extension.test.ts`.
-3. Update this pack so active truth names ERW0 as the current plan/workset repair slice and records downstream recovery as a later slice.
-4. Validate pi-sdk parser truth with `loadLocalControlPlaneSnapshot`, `plan_sync`, `test/control-plane.test.ts`, and `git diff --check`.
-5. End ERW0 with either handoff to ERW1 downstream recovery or stop/replan if dirty source/dependency changes must be split first.
+1. Updated stale contract docs in `README.md`, `docs/architecture.md`, and `docs/plan/README.md`; inspection did not find stale execute-time advancement wording in routed skill references/templates that required code-style edits.
+2. Ran the full SDK validation floor: `npm run typecheck`, `npm test`, and `npm run build`.
+3. Ran feasible smoke checks: `npm run smoke:pi-commands`, `npm run smoke:pi-bb-backed`, and `npm run smoke:packaged-install` passed; the packaged install smoke had one transient registry/cache failure for `@protobufjs/utf8@^1.1.1` and passed on retry without source/package changes.
+4. Recorded reload/release residuals without claiming the running Pi UI has loaded the local source changes.
 
-Likely changed files for ERW0:
+Changed files for ERW4 execute:
 
+- `README.md`
+- `docs/architecture.md`
 - `docs/plan/README.md`
 - `docs/plan/pi-sdk-autopilot-execute-review-writeback-hardening-2026-05-01_PLAN.md`
 - `docs/plan/pi-sdk-autopilot-execute-review-writeback-hardening-2026-05-01_STATUS.md`
 - `docs/plan/pi-sdk-autopilot-execute-review-writeback-hardening-2026-05-01_WORKSET.md`
 
-Read-only surfaces for ERW0:
+Review focus:
 
-- `/home/peng/dt-git/frontend/pos-lite-cashier/**`
-- `src/extension/**`, `test/**`, `package.json`, and `package-lock.json` except for classification evidence in docs.
+- Verify the docs no longer imply ordinary execute completion advances Stage Order before review acceptance.
+- Recheck full validation and smoke evidence, including the transient packaged-install retry.
+- Decide whether the reload residual requires a separate release/install slice or can remain closeout guidance.
 
 ## Blockers
 
-- ERW1 downstream recovery cannot start until ERW0 classifies current dirty pi-sdk source/dependency changes and repairs this pack's active truth.
-- SDK source hardening should not start until ERW1.review accepts the downstream recovery route, unless ERW0 explicitly replans that order.
-- Current installed extension may still use old execute-time writeback behavior until a later reload/install decision; the plan uses explicit review stages as a compatibility workaround.
+- No pack-completion blocker remains; downstream recovery is accepted as a parser repair, not as downstream member behavior acceptance.
+- Current running extension may still use pre-reload writeback behavior until rebuilt/reloaded; this residual is recorded without claiming live-session deployment.
+- Applying the fix to an installed/current Pi UI session still requires operator approval; this execute slice did not publish, install, or reload the operator session.
+- Closeout must not broaden into downstream OR-3D behavioral acceptance, package publishing, or the paused historical `0.70.2` upgrade pack.
 
 ## Machine State
 
-- active_step: `ERW0.plan-workset-reconcile`
-- latest_completed_step: `none`
-- intended_handoff: `plan-creator`
-- latest_closeout_summary: Hardening pack active truth repaired to focus first on this plan/workset and classify current dirty pi-sdk changes before downstream recovery.
+- active_step: `PACK_COMPLETE`
+- latest_completed_step: `ERW4.review`
+- intended_handoff: `autopilot-closeout`
+- latest_closeout_summary: ERW4 final review accepts the hardening pack.
 - latest_verification:
-  - `Read skills/plan-creator/SKILL.md and references/autopilot-control-plane-pack.md.`
-  - `Code audit read src/extension/index.ts, src/extension/runtime-dispatch.ts, src/substrate/control-plane.ts, src/autopilot/state.ts, and targeted tests.`
-  - `npx tsx --test test/extension.test.ts test/extension-local-proof.test.ts test/control-plane.test.ts passed 51 tests.`
-  - `Downstream loadLocalControlPlaneSnapshot currently fails with Missing active stage heading, matching the unsafe PACK_COMPLETE diagnosis.`
+  - `SDK parser truth: activeSlice/activeStage=PACK_COMPLETE, owner=closeout, state=DONE, intendedHandoff=autopilot-closeout, stageCount=9, missing=[].`
+  - `Downstream parser truth is not broken: pos-lite-cashier activeSlice/activeStage=OR-3D.member-shadow-facade, owner=execute-plan, stageCount=22, missing=[]; workspace_scan reports downstream clean.`
+  - `Docs now state ordinary execute/completed does not advance Stage Order; review/completed or objective-terminal done owns accepted-slice writeback with repo-local parser readback.`
+  - `Code/tests prove the contract: execute keeps same active slice; review advances next stage; non-terminal no-next-stage halts before PACK_COMPLETE; objective-terminal done writes parser-compatible PACK_COMPLETE/closeout.`
+  - `Validation passed in review: npm run typecheck && npm test && npm run build (119 tests); after the review wording fix, npx tsx --test test/control-plane.test.ts passed 11 tests and git diff --check passed.`
+  - `Review fixed one stale STATUS implication line so terminal guard evidence says it has ERW3 review coverage and final ERW4 validation.`
+  - `README.md; docs/architecture.md; docs/plan/README.md`
+  - `src/extension/runtime-dispatch.ts; src/substrate/control-plane.ts`
+  - `test/extension.test.ts; test/extension-local-proof.test.ts; test/control-plane.test.ts`
+  - `docs/plan/pi-sdk-autopilot-execute-review-writeback-hardening-2026-05-01_{PLAN,STATUS,WORKSET}.md`
+- terminal: `true`

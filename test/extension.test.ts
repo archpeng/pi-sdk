@@ -554,6 +554,28 @@ async function runHandlers(
   }
 }
 
+async function submitAutopilotToolReport(
+  tool: { execute?: (toolCallId: string, params: any) => Promise<any> | any },
+  handlers: Map<string, Array<(event: any, ctx: any) => Promise<any> | any>>,
+  ctx: any,
+  toolCallId: string,
+  params: any,
+) {
+  assert.ok(tool.execute);
+  const result = await tool.execute(toolCallId, params);
+  await runHandlers(
+    handlers,
+    "tool_result",
+    {
+      toolName: "autopilot_report",
+      details: result?.details,
+    },
+    ctx,
+  );
+  await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+  return result;
+}
+
 test("extension registers the Pi-native interactive autopilot commands", () => {
   const { pi, commands, tools } = createFakePi();
 
@@ -965,11 +987,13 @@ test("/autopilot-resume in local mode re-syncs the active slice from the current
   }
 });
 
-test("completed report in local mode writes the next active slice and the next dispatch sees updated control truth", async () => {
-  const { pi, handlers, commands, sentUserMessages, appendedEntries } = createFakePi();
+test("execute completion in local mode dispatches same-slice review; review completion writes the next active slice", async () => {
+  const { pi, handlers, commands, tools, sentUserMessages, appendedEntries } = createFakePi();
   const ctx = createFakeContext();
+  let advanceCalls = 0;
   const controlState = {
     activeSlice: "C2",
+    intendedHandoff: "execution-reality-audit",
     activeStage: {
       stageId: "C2",
       owner: "execute-plan",
@@ -995,7 +1019,7 @@ test("completed report in local mode writes the next active slice and the next d
                 worksetPath: "docs/plan/active_WORKSET.md",
               },
               activeSlice: controlState.activeSlice,
-              intendedHandoff: "execute-plan",
+              intendedHandoff: controlState.intendedHandoff,
             },
             activeStage: controlState.activeStage,
             stageOrder: ["C1", "C2", "C3"],
@@ -1016,7 +1040,10 @@ test("completed report in local mode writes the next active slice and the next d
         };
       },
       async advance(input) {
+        advanceCalls += 1;
+        assert.equal(input.intendedHandoff, "execute-plan");
         controlState.activeSlice = input.nextStage?.stageId ?? "PACK_COMPLETE";
+        controlState.intendedHandoff = input.intendedHandoff;
         if (input.nextStage) {
           controlState.activeStage = input.nextStage;
         }
@@ -1043,11 +1070,11 @@ test("completed report in local mode writes the next active slice and the next d
         details: {
           report: {
             phase: "master_plan",
-            status: "completed",
-            summary: "C2 writeback path landed",
+            status: "continue",
+            summary: "C2 route planned",
             stepId: "C2",
-            evidence: ["control-plane writeback orchestration implemented"],
-            artifacts: ["src/extension/index.ts"],
+            evidence: ["control-plane writeback route planned"],
+            artifacts: ["docs/plan/README.md"],
             risks: [],
             timestampMs: 2,
           },
@@ -1057,12 +1084,328 @@ test("completed report in local mode writes the next active slice and the next d
       ctx,
     );
     await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "wave_plan",
+            status: "continue",
+            summary: "C2 execute queued",
+            stepId: "C2",
+            evidence: ["execute route queued"],
+            artifacts: ["docs/plan/active_WORKSET.md"],
+            risks: [],
+            timestampMs: 3,
+          },
+          historySize: 2,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
 
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+    const executeResult = await tool.execute?.("tool-call-1", {
+      phase: "execute",
+      status: "completed",
+      summary: "C2 execute landed",
+      stepId: "C2",
+      evidence: ["execute dispatches review without accepted writeback"],
+      artifacts: ["src/extension/index.ts"],
+      risks: [],
+    });
+    assert.equal(executeResult?.details?.report?.status, "completed");
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: executeResult?.details,
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(advanceCalls, 0);
+    assert.equal(controlState.activeSlice, "C2");
+    assert.equal(sentUserMessages.length, 4);
+    assert.match(String(sentUserMessages[3]?.content), /Bound surface: skill `execution-reality-audit`/);
+    assert.match(String(sentUserMessages[3]?.content), /Current active slice: C2/);
+    const runtimeAfterExecute = appendedEntries.at(-1)?.data as { autopilotOwnedPaths?: string[] } | undefined;
+    assert.notEqual(runtimeAfterExecute?.autopilotOwnedPaths?.includes("docs/plan/README.md"), true);
+
+    const reviewResult = await tool.execute?.("tool-call-2", {
+      phase: "review",
+      status: "completed",
+      summary: "C2 review accepted",
+      stepId: "C2",
+      evidence: ["review-owned accepted writeback applied"],
+      artifacts: ["docs/plan/README.md"],
+      risks: [],
+    });
+    assert.equal(reviewResult?.details?.report?.status, "completed");
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: reviewResult?.details,
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(advanceCalls, 1);
     assert.equal(controlState.activeSlice, "C3");
-    assert.equal(sentUserMessages.length, 2);
-    assert.match(String(sentUserMessages[1]?.content), /Current active slice: C3/);
+    assert.equal(controlState.intendedHandoff, "execute-plan");
+    assert.equal(sentUserMessages.length, 5);
+    assert.match(String(sentUserMessages[4]?.content), /Current active slice: C3/);
     const latestRuntime = appendedEntries.at(-1)?.data as { autopilotOwnedPaths?: string[] } | undefined;
     assert.equal(latestRuntime?.autopilotOwnedPaths?.includes("docs/plan/README.md"), true);
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("review completion without a next local stage halts before PACK_COMPLETE writeback", async () => {
+  const { pi, handlers, commands, tools, sentUserMessages, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  let advanceCalls = 0;
+  const controlState = {
+    activeSlice: "L1",
+    intendedHandoff: "execute-plan",
+    activeStage: {
+      stageId: "L1",
+      owner: "execute-plan",
+      state: "READY",
+      priority: "highest",
+      objectives: ["prove last-stage review cannot silently terminalize docs/plan"],
+      requiredDeliverables: ["non-terminal PACK_COMPLETE guard"],
+      avoid: ["unsafe PACK_COMPLETE writeback"],
+    },
+  };
+
+  setRuntimeSubstrate(
+    createFakeLocalSubstrate(ctx.cwd, {
+      async snapshot() {
+        return {
+          ok: true,
+          summary: "local control-plane snapshot loaded",
+          data: {
+            readme: {
+              activePack: {
+                planPath: "docs/plan/active_PLAN.md",
+                statusPath: "docs/plan/active_STATUS.md",
+                worksetPath: "docs/plan/active_WORKSET.md",
+              },
+              activeSlice: controlState.activeSlice,
+              intendedHandoff: controlState.intendedHandoff,
+            },
+            activeStage: controlState.activeStage,
+            stageOrder: ["L1"],
+            sliceDefinitions: {
+              L1: controlState.activeStage,
+            },
+          },
+          rawText: "",
+        };
+      },
+      async advance() {
+        advanceCalls += 1;
+        controlState.activeSlice = "PACK_COMPLETE";
+        return {
+          ok: true,
+          summary: "unsafe terminal writeback should not run",
+          data: { nextActiveSlice: null, updatedFiles: ["docs/plan/README.md"] },
+          rawText: "",
+        };
+      },
+    }),
+  );
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+
+    await submitAutopilotToolReport(tool, handlers, ctx, "tool-call-l1-master", {
+      phase: "master_plan",
+      status: "continue",
+      summary: "L1 route planned",
+      stepId: "L1",
+      evidence: ["last-stage guard route planned"],
+      artifacts: ["docs/plan/README.md"],
+      risks: [],
+    });
+    await submitAutopilotToolReport(tool, handlers, ctx, "tool-call-l1-wave", {
+      phase: "wave_plan",
+      status: "continue",
+      summary: "L1 execute queued",
+      stepId: "L1",
+      evidence: ["last-stage guard queued"],
+      artifacts: ["docs/plan/active_WORKSET.md"],
+      risks: [],
+    });
+    await submitAutopilotToolReport(tool, handlers, ctx, "tool-call-l1-execute", {
+      phase: "execute",
+      status: "completed",
+      summary: "L1 execute landed",
+      stepId: "L1",
+      evidence: ["execute still dispatches review without accepted writeback"],
+      artifacts: ["src/extension/runtime-dispatch.ts"],
+      risks: [],
+    });
+
+    assert.equal(sentUserMessages.length, 4);
+    assert.match(String(sentUserMessages[3]?.content), /Bound surface: skill `execution-reality-audit`/);
+    assert.match(String(sentUserMessages[3]?.content), /Current active slice: L1/);
+
+    await submitAutopilotToolReport(tool, handlers, ctx, "tool-call-l1-review", {
+      phase: "review",
+      status: "completed",
+      summary: "L1 review accepted but no next stage exists",
+      stepId: "L1",
+      evidence: ["last-stage review acceptance attempted"],
+      artifacts: ["docs/plan/active_STATUS.md"],
+      risks: [],
+    });
+
+    assert.equal(advanceCalls, 0);
+    assert.equal(controlState.activeSlice, "L1");
+    assert.equal(sentUserMessages.length, 4);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /refusing non-terminal PACK_COMPLETE writeback/);
+    const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
+    assert.equal(latestRuntime?.mode, "closed");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+test("objective-terminal done writes parser-compatible PACK_COMPLETE and dispatches closeout", async () => {
+  const { pi, handlers, commands, tools, sentUserMessages, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  let advanceCalls = 0;
+  const activeStage = {
+    stageId: "T1",
+    owner: "execute-plan",
+    state: "READY",
+    priority: "highest",
+    objectives: ["prove explicit terminal writeback"],
+    requiredDeliverables: ["PACK_COMPLETE parser sentinel"],
+    doneWhen: ["terminal writeback path is explicit"],
+    stopBoundary: ["terminal writeback cannot be parsed"],
+    avoid: ["implicit non-terminal PACK_COMPLETE"],
+  };
+  const packCompleteStage = {
+    stageId: "PACK_COMPLETE",
+    owner: "closeout",
+    state: "DONE",
+    priority: "terminal",
+    objectives: ["close the pack through the repo-local closeout prompt surface"],
+    requiredDeliverables: ["final closeout summary and residual handoff"],
+    doneWhen: [],
+    stopBoundary: [],
+    avoid: ["dispatching another execute/review phase from terminal parser truth"],
+  };
+  const controlState = {
+    activeSlice: "T1",
+    intendedHandoff: "execute-plan",
+    activeStage,
+  };
+
+  setRuntimeSubstrate(
+    createFakeLocalSubstrate(ctx.cwd, {
+      async snapshot() {
+        return {
+          ok: true,
+          summary: "local control-plane snapshot loaded",
+          data: {
+            readme: {
+              activePack: {
+                planPath: "docs/plan/active_PLAN.md",
+                statusPath: "docs/plan/active_STATUS.md",
+                worksetPath: "docs/plan/active_WORKSET.md",
+              },
+              activeSlice: controlState.activeSlice,
+              intendedHandoff: controlState.intendedHandoff,
+            },
+            activeStage: controlState.activeStage,
+            stageOrder: ["T1"],
+            sliceDefinitions: {
+              T1: activeStage,
+            },
+          },
+          rawText: "",
+        };
+      },
+      async advance(input) {
+        advanceCalls += 1;
+        assert.equal(input.nextStage, null);
+        assert.equal(input.intendedHandoff, "autopilot-closeout");
+        controlState.activeSlice = "PACK_COMPLETE";
+        controlState.intendedHandoff = input.intendedHandoff;
+        controlState.activeStage = packCompleteStage;
+        return {
+          ok: true,
+          summary: "terminal control-plane writeback applied",
+          data: { nextActiveSlice: "PACK_COMPLETE", updatedFiles: ["docs/plan/README.md", "docs/plan/active_STATUS.md", "docs/plan/active_WORKSET.md"] },
+          rawText: "",
+        };
+      },
+    }),
+  );
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-run")?.handler("land the Pi-native autopilot", ctx);
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+
+    await submitAutopilotToolReport(tool, handlers, ctx, "tool-call-t1-master", {
+      phase: "master_plan",
+      status: "continue",
+      summary: "T1 route planned",
+      stepId: "T1",
+      evidence: ["terminal route planned"],
+      artifacts: ["docs/plan/README.md"],
+      risks: [],
+    });
+    await submitAutopilotToolReport(tool, handlers, ctx, "tool-call-t1-wave", {
+      phase: "wave_plan",
+      status: "continue",
+      summary: "T1 execute queued",
+      stepId: "T1",
+      evidence: ["terminal execute queued"],
+      artifacts: ["docs/plan/active_WORKSET.md"],
+      risks: [],
+    });
+    const doneResult = await submitAutopilotToolReport(tool, handlers, ctx, "tool-call-t1-execute", {
+      phase: "execute",
+      status: "done",
+      summary: "T1 objective terminal writeback accepted",
+      stepId: "T1",
+      doneWhenMet: ["terminal writeback path is explicit"],
+      evidence: ["objective-terminal done path used"],
+      artifacts: ["docs/plan/active_WORKSET.md"],
+      risks: [],
+    });
+
+    assert.equal(doneResult?.details?.report?.status, "done");
+    assert.equal(advanceCalls, 1);
+    assert.equal(controlState.activeSlice, "PACK_COMPLETE");
+    assert.equal(controlState.intendedHandoff, "autopilot-closeout");
+    assert.equal(sentUserMessages.length, 4);
+    assert.match(String(sentUserMessages[3]?.content), /Bound surface: prompt `autopilot-closeout`/);
+    assert.match(String(sentUserMessages[3]?.content), /Current active slice: PACK_COMPLETE/);
+    const latestRuntime = appendedEntries.at(-1)?.data as { phase?: string; mode?: string; activeSlice?: { stepId?: string } } | undefined;
+    assert.equal(latestRuntime?.phase, "closeout");
+    assert.equal(latestRuntime?.mode, "running");
+    assert.equal(latestRuntime?.activeSlice?.stepId, "PACK_COMPLETE");
   } finally {
     setRuntimeSubstrate(undefined);
   }

@@ -258,9 +258,29 @@ function markChecklistEntry(markdown: string, sliceId: string): string {
   return markdown.replace(new RegExp(`- \\[[ x]\\] \`${escapedSlice}\``, "g"), `- [x] \`${sliceId}\``);
 }
 
+export const CONTROL_PLANE_PACK_COMPLETE_STAGE_ID = "PACK_COMPLETE";
+
 function renderActiveStageBody(stage: WorksetActiveStageSnapshot | null): string {
   if (!stage) {
-    return "- none; pack complete";
+    return [
+      `### \`${CONTROL_PLANE_PACK_COMPLETE_STAGE_ID}\``,
+      "",
+      "- Owner: `closeout`",
+      "- State: `DONE`",
+      "- Priority: `terminal`",
+      "",
+      "目标：",
+      "",
+      "- close the pack through the repo-local closeout prompt surface",
+      "",
+      "必须交付：",
+      "",
+      "1. final closeout summary and residual handoff",
+      "",
+      "必须避免：",
+      "",
+      "1. dispatching another execute/review phase from terminal parser truth",
+    ].join("\n");
   }
 
   const lines = [
@@ -298,7 +318,7 @@ function renderMachineStateBody(
   transition: ControlPlaneProgressTransition,
   nextStage: WorksetActiveStageSnapshot | null,
 ): string {
-  const nextSlice = nextStage?.stageId ?? "PACK_COMPLETE";
+  const nextSlice = nextStage?.stageId ?? CONTROL_PLANE_PACK_COMPLETE_STAGE_ID;
   const lines = [
     `- active_step: \`${nextSlice}\``,
     `- latest_completed_step: \`${transition.completedSlice}\``,
@@ -318,9 +338,10 @@ function renderMachineStateBody(
 export function applyControlPlaneProgressWriteback(
   input: ControlPlaneWritebackInput,
 ): ControlPlaneWritebackPayload {
-  const nextSlice = input.nextStage?.stageId ?? "PACK_COMPLETE";
+  const nextSlice = input.nextStage?.stageId ?? CONTROL_PLANE_PACK_COMPLETE_STAGE_ID;
 
-  const readmeMarkdown = replaceFirstBulletValue(input.readmeMarkdown, "Current Active Slice", nextSlice);
+  let readmeMarkdown = replaceFirstBulletValue(input.readmeMarkdown, "Current Active Slice", nextSlice);
+  readmeMarkdown = replaceFirstBulletValue(readmeMarkdown, "Intended Handoff", input.transition.intendedHandoff);
 
   let statusMarkdown = input.statusMarkdown.replace(
     /^- active_step:\s+`[^`]+`$/m,

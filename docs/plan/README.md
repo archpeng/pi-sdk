@@ -8,11 +8,10 @@
 
 ## Current Active Slice
 
-- `ERW0.plan-workset-reconcile`
-
+- `PACK_COMPLETE`
 ## Intended Handoff
 
-- `plan-creator`
+- `autopilot-closeout`
 
 ## Previous Pack
 
@@ -24,9 +23,9 @@
 
 This `docs/plan/` directory remains the repo-level control plane for resumable work.
 
-The previous Pi Coding Agent `0.70.2` compatibility pack is paused at `U3`: fresh npm readback reported `@mariozechner/pi-coding-agent@0.70.2` unavailable (`E404`) while an operator-approved substitute install moved global Pi to `0.70.0`. This hardening pack does not close or relabel that objective.
+The previous Pi Coding Agent `0.70.2` compatibility pack is historically paused at `U3`: fresh npm readback reported `@mariozechner/pi-coding-agent@0.70.2` unavailable (`E404`) while an operator-approved substitute install moved global Pi to `0.70.0`. Later operator-requested out-of-pack updates moved global Pi and this package's Pi dependencies to `0.71.1`; this hardening pack does not rewrite or close the old exact-`0.70.2` objective.
 
-The current active pack addresses a higher-priority local autopilot safety issue discovered from the downstream `pos-lite-cashier` order-runtime roadmap run: `execute/completed` writeback can advance Stage Order or write `PACK_COMPLETE` before `review`, leaving `WORKSET ## Active Stage` unparsable (`Missing active stage heading`). The active slice is now a plan/workset reconciliation pass for this pack itself: it must classify the current dirty pi-sdk source/dependency changes, repair README / PLAN / STATUS / WORKSET truth, and only then route to downstream recovery or SDK implementation.
+The current active pack addresses a higher-priority local autopilot safety issue discovered from the downstream `pos-lite-cashier` order-runtime roadmap run: `execute/completed` writeback can advance Stage Order or write `PACK_COMPLETE` before `review`, leaving `WORKSET ## Active Stage` unparsable (`Missing active stage heading`). ERW0 reconciled this pack around the current pi-sdk state, ERW1 repaired/reviewed the downstream parser recovery without accepting downstream member behavior, ERW2 reviewed/accepted ordinary execute-vs-review writeback gating, and ERW3 reviewed/accepted terminal `PACK_COMPLETE` parser safety with a handoff-drift fix. ERW4 docs/smoke/reload closeout execution and final review are complete; this pack is terminal at parser-compatible `PACK_COMPLETE` with repo-local closeout as the next prompt surface.
 
 ## Deterministic Phase Routing Contract (`G1` freeze)
 
@@ -51,5 +50,5 @@ Fail-fast law frozen in `G1`:
 - repo-local machine truth is single-root at `docs/plan/*`
 - local writeback advances only `README / STATUS / WORKSET` under that root; no dual-root `docs/active/*` mirroring is part of the landed contract
 - execute / review prompts surface active-slice `done_when / stop_boundary`
-- accepted execute / review reports derive progression from `doneWhenMet / stopBoundaryHit`, not only the raw requested `status`
+- execute / review report outcome derives from `doneWhenMet / stopBoundaryHit`, not only the raw requested `status`; accepted-slice Stage Order writeback is owned by `review/completed` or objective-terminal `done`, not ordinary `execute/completed`
 - `closeout` remains a repo-local prompt surface, not a separate global closeout skill

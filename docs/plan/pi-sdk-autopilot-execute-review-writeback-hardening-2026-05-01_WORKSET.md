@@ -2,75 +2,56 @@
 
 | field              | value                                                                                                               |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| status             | `active`                                                                                                            |
-| active_slice       | `ERW0.plan-workset-reconcile`                                                                                        |
-| verification_floor | parser snapshot + targeted tests + typecheck/build as soon as sdk source changes; downstream recovery adds plan checks |
-| active_root        | `docs/plan/`                                                                                                        |
+| status             | `complete`                                                                                                         |
+| active_slice       | `PACK_COMPLETE`                                                                                                   |
+| verification_floor | parser-compatible PACK_COMPLETE snapshot + final evidence review of docs, validation, smokes, and reload residuals |
+| active_root        | `docs/plan/`                                                                                                       |
+| intended_handoff   | `autopilot-closeout`                                                                                              |
 
 ## Stage Order
 
-- [ ] `ERW0.plan-workset-reconcile` current hardening pack truth repair
-- [ ] `ERW1.pos-lite-review-stage-repair` downstream explicit review-stage repair
-- [ ] `ERW1.review` review downstream recovery
-- [ ] `ERW2.phase-gated-writeback` review-owned accepted-slice writeback
-- [ ] `ERW2.review` review phase gate
-- [ ] `ERW3.pack-complete-parser-guard` terminal writeback and parser guard
-- [ ] `ERW3.review` review terminal/parser guard
-- [ ] `ERW4.docs-smoke-closeout` docs, validation, smoke, reload guidance
-- [ ] `ERW4.review` final hardening review
+- [x] `ERW0.plan-workset-reconcile` current hardening pack truth repair
+- [x] `ERW1.pos-lite-review-stage-repair` downstream explicit review-stage repair
+- [x] `ERW1.review` review downstream recovery
+- [x] `ERW2.phase-gated-writeback` review-owned accepted-slice writeback
+- [x] `ERW2.review` review phase gate
+- [x] `ERW3.pack-complete-parser-guard` terminal writeback and parser guard
+- [x] `ERW3.review` review terminal/parser guard
+- [x] `ERW4.docs-smoke-closeout` docs, validation, smoke, reload guidance
+- [x] `ERW4.review` final hardening review
 
 ## Active Stage
 
-### `ERW0.plan-workset-reconcile`
+### `PACK_COMPLETE`
 
-- Owner: `plan-creator`
-- State: `READY`
-- Priority: `highest`
+- Owner: `closeout`
+- State: `DONE`
+- Priority: `terminal`
 
 目标：
 
-- Repair this hardening pack's README / PLAN / STATUS / WORKSET truth around the current dirty `pi-sdk` tree before executing downstream recovery or SDK source hardening.
+- close the pack through the repo-local closeout prompt surface
 
 必须交付：
 
-1. Inspect current `pi-sdk` dirty files and classify whether each changed source/dependency/test file belongs to this hardening pack, the paused `0.70.x` upgrade pack, or an unrelated slice.
-2. Update this pack so the active slice, stage order, machine state, workset queue, and latest evidence match the chosen current route.
-3. Keep downstream `pos-lite-cashier` files read-only in this reconciliation slice.
-4. Validate this pack with real `loadLocalControlPlaneSnapshot`, `plan_sync`, `npx tsx --test test/control-plane.test.ts`, and `git diff --check`.
-
-done_when:
-
-1. README, STATUS, and WORKSET agree on one active slice and intended handoff for this hardening pack.
-2. Current dirty `pi-sdk` files are explicitly classified as in-scope, out-of-scope, or requiring a separate follow-up before ERW1/ERW2 execution starts.
-3. `loadLocalControlPlaneSnapshot('docs/plan', process.cwd())` parses this hardening pack with no missing active stage or missing PLAN definitions.
-4. `plan_sync /home/peng/dt-git/github/pi-sdk/docs/plan`, `npx tsx --test test/control-plane.test.ts`, and `git diff --check` pass.
-
-stop_boundary:
-
-1. Stop if current dirty `pi-sdk` source/dependency changes cannot be classified without code review beyond plan/workset repair.
-2. Stop if this pack cannot stay single-root under `docs/plan/*`.
-3. Stop if parser truth still points at downstream recovery while the actual active work is current-pack reconciliation.
-4. Stop if repair would require editing downstream `pos-lite-cashier` files.
+1. final closeout summary and residual handoff
 
 必须避免：
 
-1. Starting downstream `pos-lite-cashier` recovery from ERW0.
-2. Starting pi-sdk source hardening or dependency upgrade implementation from ERW0.
-3. Marking the hardening plan complete from a plan/workset reconciliation pass.
-
+1. dispatching another execute/review phase from terminal parser truth
 ## Active / Pending Slice Queue
 
 | item                                  | type              | owner                     | target output                                                                                          | verification                                                                       | status   | next activation rule                                  |
 | ------------------------------------- | ----------------- | ------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | -------- | ----------------------------------------------------- |
-| `ERW0.plan-workset-reconcile`         | `planning`        | `plan-creator`            | current hardening pack truth repaired; dirty pi-sdk changes classified                                  | pi-sdk parser snapshot + plan_sync + control-plane test + diff checks              | `active` | then activate `ERW1.pos-lite-review-stage-repair` or stop/replan |
-| `ERW1.pos-lite-review-stage-repair`   | `recovery`        | `execute-plan`            | downstream explicit OR-3D review stage, no runtime behavior changes                                    | downstream parser snapshot + plan_sync + trio/score + docs/diff checks             | `queued` | current sdk writeback activates `ERW1.review`         |
-| `ERW1.review`                         | `review`          | `execution-reality-audit` | accept/block downstream recovery before sdk code changes                                               | cold diff/readout review                                                           | `queued` | if accepted, proceed to `ERW2.phase-gated-writeback`  |
-| `ERW2.phase-gated-writeback`          | `sdk-code`        | `execute-plan`            | execute/completed same-slice review dispatch; review/completed accepted-slice writeback                | extension/local-proof/control-plane/phase-prompt tests                             | `queued` | current runtime may still activate `ERW2.review`      |
-| `ERW2.review`                         | `review`          | `execution-reality-audit` | accept/block phase-gated writeback semantics                                                           | code inspection + targeted tests                                                   | `queued` | if accepted, proceed to `ERW3.pack-complete-parser-guard` |
-| `ERW3.pack-complete-parser-guard`     | `sdk-code`        | `execute-plan`            | terminal guard and post-writeback parser validation                                                    | last-stage regression tests + parser snapshot test                                 | `queued` | review before docs/smoke                              |
-| `ERW3.review`                         | `review`          | `execution-reality-audit` | accept/block terminal guard and parser validation                                                       | cold review + targeted tests                                                       | `queued` | if accepted, proceed to `ERW4.docs-smoke-closeout`    |
-| `ERW4.docs-smoke-closeout`            | `docs-validation` | `execute-plan`            | docs/reference updates, full validation, reload/release residual                                       | typecheck + npm test + build + feasible smokes                                     | `queued` | review closes or routes release/reload follow-up      |
-| `ERW4.review`                         | `review`          | `execution-reality-audit` | final hardening acceptance and residual handoff                                                         | full evidence review                                                               | `queued` | closeout or follow-up plan                            |
+| `ERW0.plan-workset-reconcile`         | `planning`        | `plan-creator`            | current hardening pack truth repaired; source/dependency/test state and prior dirty changes classified   | pi-sdk parser snapshot + plan_sync + control-plane test + diff checks              | `done`   | ERW1 selected as first executable wave                |
+| `ERW1.pos-lite-review-stage-repair`   | `recovery`        | `execute-plan`            | downstream explicit OR-3D review stage, no runtime behavior changes                                    | downstream parser snapshot + plan_sync + trio/score + docs/diff checks             | `done`   | ERW1 review accepted the recovery                     |
+| `ERW1.review`                         | `review`          | `execution-reality-audit` | accept/block downstream recovery before sdk code changes                                               | cold diff/readout review                                                           | `done`   | ERW2 selected after acceptance                        |
+| `ERW2.phase-gated-writeback`          | `sdk-code`        | `execute-plan`            | execute/completed same-slice review dispatch; review/completed accepted-slice writeback                | extension/local-proof/control-plane/phase-prompt tests                             | `done`   | ERW2 review accepts before ERW3 activation            |
+| `ERW2.review`                         | `review`          | `execution-reality-audit` | accept/block phase-gated writeback semantics                                                           | code inspection + targeted tests                                                   | `done`   | ERW3 selected after acceptance                        |
+| `ERW3.pack-complete-parser-guard`     | `sdk-code`        | `execute-plan`            | terminal guard and post-writeback parser validation                                                    | last-stage regression tests + parser snapshot test                                 | `done`   | review before docs/smoke                              |
+| `ERW3.review`                         | `review`          | `execution-reality-audit` | accept/block terminal guard and parser validation                                                       | cold review + targeted tests                                                       | `done`   | accepted; ERW4 active                                |
+| `ERW4.docs-smoke-closeout`            | `docs-validation` | `execute-plan`            | docs/reference updates, full validation, reload/release residual                                       | typecheck + npm test + build + feasible smokes                                     | `done`   | executed; ERW4.review active                          |
+| `ERW4.review`                         | `review`          | `execution-reality-audit` | final hardening acceptance and residual handoff                                                         | full evidence review                                                               | `done`   | accepted; PACK_COMPLETE terminal                      |
 
 ## Slice Cards
 
@@ -78,9 +59,9 @@ stop_boundary:
 
 | field                | value                                                                                                                                                                         |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| source_anchor        | user instruction to focus on this plan/workset repair plus current dirty pi-sdk source/dependency/test files that are not yet classified in the active pack                    |
+| source_anchor        | user instruction to focus on this plan/workset repair plus the prior pi-sdk source/dependency/test changes that must not be confused with writeback-hardening work              |
 | target_owner         | `docs/plan/README.md` and this hardening pack's PLAN / STATUS / WORKSET                                                                                                      |
-| expected_deliverable | parser-compatible active truth for ERW0 plus explicit classification of current dirty pi-sdk files                                                                            |
+| expected_deliverable | parser-compatible active truth for ERW0 plus explicit classification of current non-control-plane state and prior dirty pi-sdk files                                            |
 | verification_shape   | `loadLocalControlPlaneSnapshot('docs/plan', process.cwd())`, `plan_sync`, `npx tsx --test test/control-plane.test.ts`, `git diff --check`                                     |
 | residual_seed        | ERW1 downstream recovery and ERW2/ERW3 source hardening remain queued until this reconciliation accepts or replans the current dirty tree                                      |
 
@@ -110,27 +91,38 @@ stop_boundary:
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | source_anchor        | `resolveNextStageFromStageOrder` null -> `PACK_COMPLETE` plus downstream active-stage parser loss                                                             |
 | target_owner         | `src/substrate/control-plane.ts`, `src/extension/runtime-dispatch.ts`, control-plane/extension tests                                                           |
-| expected_deliverable | fail-fast or explicit terminal path when no next stage exists; parser snapshot validation after writeback                                                      |
-| verification_shape   | last-stage regression tests + `loadLocalControlPlaneSnapshot` post-writeback proof                                                                             |
-| residual_seed        | release/reload semantics and docs alignment remain for ERW4                                                                                                    |
+| expected_deliverable | fail-fast non-terminal no-next-stage path, explicit terminal closeout path, and parser snapshot validation after writeback                                    |
+| verification_shape   | `npm run typecheck`; extension/control-plane/local-proof/phase-prompt tests; `loadLocalControlPlaneSnapshot` post-writeback proof                              |
+| residual_seed        | review acceptance plus release/reload semantics and docs alignment remain for ERW4                                                                              |
 
 ### `ERW4.docs-smoke-closeout`
 
 | field                | value                                                                                                                                                         |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| source_anchor        | code fixes from ERW2/ERW3 and current README/skill references that still imply execute/writeback behavior                                                     |
-| target_owner         | README, `skills/*/references/*`, relevant tests/smoke scripts if validation command is added                                                                   |
-| expected_deliverable | documented review-owned writeback contract, full validation, clear install/reload residual                                                                    |
-| verification_shape   | `npm run typecheck`, `npm test`, `npm run build`, feasible smokes                                                                                              |
-| residual_seed        | possible follow-up release/install slice if current Pi session must load rebuilt extension                                                                     |
+| source_anchor        | ERW2/ERW3 reviewed fixes plus stale broad writeback wording in `README.md`, `docs/architecture.md`, and `docs/plan/README.md`                                   |
+| target_owner         | `README.md`, `docs/architecture.md`, active pack README / PLAN / STATUS / WORKSET                                                                               |
+| expected_deliverable | documented review-owned writeback contract, full validation, feasible smoke results, clear install/reload residual                                              |
+| verification_shape   | passed: `npm run typecheck`, `npm test`, `npm run build`, `npm run smoke:pi-commands`, `npm run smoke:pi-bb-backed`, `npm run smoke:packaged-install` on retry |
+| residual_seed        | final review decides whether current-session reload/install remains closeout guidance or needs a follow-up release/install slice                                |
+
+### `ERW4.review`
+
+| field                | value                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| source_anchor        | completed ERW0-ERW4 evidence, full validation/smoke output, downstream parser recovery evidence, and reload residual                                           |
+| target_owner         | `execution-reality-audit` final review of active pack docs, source/test diffs, validation logs, and residual handoff                                           |
+| expected_deliverable | accept/block complete hardening pack and identify whether a separate release/install/reload slice is required                                                 |
+| verification_shape   | cold review of docs/source/test diffs plus current parser snapshot, plan_sync, validation/smoke evidence, and downstream recovery boundary                     |
+| residual_seed        | closeout or bounded release/install follow-up; paused `0.70.2` pack remains separate                                                                          |
 
 ## ERW0 Dirty File Classification
 
 | file / group                                                                                                       | classification                               | handling                                                                                                     |
 | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `docs/plan/README.md` and current hardening pack PLAN / STATUS / WORKSET                                           | in-scope for ERW0                            | active parser truth repair                                                                                   |
-| `package.json`, `package-lock.json`                                                                                 | out-of-scope for ERW0 / ERW1                 | dependency/upgrade work; requires separate replan or paused-pack continuation                                |
-| `src/extension/index.ts`, `src/extension/runtime-ui.ts`                                                              | out-of-scope for ERW0 / ERW1 as source edits | appears to be thinking-level UI status behavior, not writeback phase gating                                  |
+| current non-control-plane dirty state                                                                                | no current dirty `pi-sdk` source/dependency/test files | ERW0 only edits active pack docs; no source/dependency dirty split is required                                |
+| `docs/plan/README.md` and current hardening pack PLAN / STATUS / WORKSET                                           | in-scope for ERW0                            | committed in `2d2e61c`; active parser truth repair                                                           |
+| `package.json`, `package-lock.json`                                                                                 | out-of-scope for ERW0 / ERW1                 | committed Pi `0.71.x` dependency upgrade; requires separate replan or paused-pack continuation if revisited  |
+| `src/extension/index.ts`, `src/extension/runtime-ui.ts`                                                              | out-of-scope for ERW0 / ERW1 as source edits | committed thinking-level UI status behavior, not writeback phase gating                                      |
 | `test/extension-support.test.ts`, `test/extension.test.ts`                                                           | out-of-scope for ERW0 / ERW1 as test edits   | paired with thinking-level UI status behavior; not ERW2 evidence unless replanned                            |
 | downstream `pos-lite-cashier/**`                                                                                    | read-only for ERW0                           | only ERW1 may edit downstream `docs/plan/*`                                                                  |
 
@@ -140,16 +132,23 @@ ERW0 is intentionally local to this `pi-sdk` pack and must not edit downstream f
 
 ## Runtime Compatibility Note
 
-Until ERW2/ERW3 are implemented and the fixed extension is loaded, the current runtime may still advance Stage Order on `execute/completed`. Therefore this pack uses explicit `*.review` stages as a compatibility bridge. After the fixed extension is active, future packs should prefer same-slice execute -> review unless there is a separate product reason to model review as its own stage.
+ERW3/ERW4 source and docs are implemented and locally validated, but the current running Pi UI session may still carry older writeback behavior until rebuilt/reloaded. This pack does not claim live-session deployment; applying the fix to an installed/current session requires operator-approved reload/reinstall/restart or a follow-up release/install slice if review decides it is needed.
 
 ## Machine Queue
 
-- active_step: `ERW0.plan-workset-reconcile`
-- latest_completed_step: `none`
-- intended_handoff: `plan-creator`
-- latest_closeout_summary: Hardening pack active truth repaired to focus first on this plan/workset and classify current dirty pi-sdk changes before downstream recovery.
+- active_step: `PACK_COMPLETE`
+- latest_completed_step: `ERW4.review`
+- intended_handoff: `autopilot-closeout`
+- latest_closeout_summary: ERW4 final review accepts the hardening pack.
 - latest_verification:
-  - `Read skills/plan-creator/SKILL.md and references/autopilot-control-plane-pack.md.`
-  - `Code audit read src/extension/index.ts, src/extension/runtime-dispatch.ts, src/substrate/control-plane.ts, src/autopilot/state.ts, and targeted tests.`
-  - `npx tsx --test test/extension.test.ts test/extension-local-proof.test.ts test/control-plane.test.ts passed 51 tests.`
-  - `Downstream loadLocalControlPlaneSnapshot currently fails with Missing active stage heading, matching the unsafe PACK_COMPLETE diagnosis.`
+  - `SDK parser truth: activeSlice/activeStage=PACK_COMPLETE, owner=closeout, state=DONE, intendedHandoff=autopilot-closeout, stageCount=9, missing=[].`
+  - `Downstream parser truth is not broken: pos-lite-cashier activeSlice/activeStage=OR-3D.member-shadow-facade, owner=execute-plan, stageCount=22, missing=[]; workspace_scan reports downstream clean.`
+  - `Docs now state ordinary execute/completed does not advance Stage Order; review/completed or objective-terminal done owns accepted-slice writeback with repo-local parser readback.`
+  - `Code/tests prove the contract: execute keeps same active slice; review advances next stage; non-terminal no-next-stage halts before PACK_COMPLETE; objective-terminal done writes parser-compatible PACK_COMPLETE/closeout.`
+  - `Validation passed in review: npm run typecheck && npm test && npm run build (119 tests); after the review wording fix, npx tsx --test test/control-plane.test.ts passed 11 tests and git diff --check passed.`
+  - `Review fixed one stale STATUS implication line so terminal guard evidence says it has ERW3 review coverage and final ERW4 validation.`
+  - `README.md; docs/architecture.md; docs/plan/README.md`
+  - `src/extension/runtime-dispatch.ts; src/substrate/control-plane.ts`
+  - `test/extension.test.ts; test/extension-local-proof.test.ts; test/control-plane.test.ts`
+  - `docs/plan/pi-sdk-autopilot-execute-review-writeback-hardening-2026-05-01_{PLAN,STATUS,WORKSET}.md`
+- terminal: `true`

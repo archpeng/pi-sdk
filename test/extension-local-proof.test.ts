@@ -100,17 +100,17 @@ function writeLocalPlanPack(repoRoot: string): void {
 交付物：
 
 1. local-mode same-session proof
-2. real file writeback proof
+2. execute completion keeps D2 active until review acceptance
 3. execute-phase stop-law completion proof
 
 done_when:
 
 1. local execute review is routed with deterministic skill preload
-2. single-root docs/plan writeback advances the active slice before redispatch
+2. execute completion dispatches review without advancing the active slice
 
 stop_boundary:
 
-1. stop if redispatch only proves prompt text and not actual docs/plan writeback
+1. stop if execute completion mutates docs/plan before review
 2. stop if execute completion skips explicit stop-law reporting
 
 必须避免：
@@ -133,11 +133,11 @@ stop_boundary:
 
 done_when:
 
-1. closeout stage keeps explicit stop-law sections after execute writeback
+1. accepted review writeback keeps explicit stop-law sections
 
 stop_boundary:
 
-1. stop if execute-phase writeback points outside docs/plan
+1. stop if review-owned writeback points outside docs/plan
 
 必须避免：
 
@@ -175,17 +175,17 @@ stop_boundary:
 必须交付：
 
 1. local-mode same-session proof
-2. real file writeback proof
+2. execute completion keeps D2 active until review acceptance
 3. execute-phase stop-law completion proof
 
 done_when:
 
 1. local execute review is routed with deterministic skill preload
-2. single-root docs/plan writeback advances the active slice before redispatch
+2. execute completion dispatches review without advancing the active slice
 
 stop_boundary:
 
-1. stop if redispatch only proves prompt text and not actual docs/plan writeback
+1. stop if execute completion mutates docs/plan before review
 2. stop if execute completion skips explicit stop-law reporting
 
 必须避免：
@@ -220,17 +220,17 @@ stop_boundary:
 必须交付：
 
 1. local-mode same-session proof
-2. real file writeback proof
+2. execute completion keeps D2 active until review acceptance
 3. execute-phase stop-law completion proof
 
 done_when:
 
 1. local execute review is routed with deterministic skill preload
-2. single-root docs/plan writeback advances the active slice before redispatch
+2. execute completion dispatches review without advancing the active slice
 
 stop_boundary:
 
-1. stop if redispatch only proves prompt text and not actual docs/plan writeback
+1. stop if execute completion mutates docs/plan before review
 2. stop if execute completion skips explicit stop-law reporting
 
 必须避免：
@@ -241,7 +241,7 @@ stop_boundary:
   );
 }
 
-test("extension-only local mode can progress a repo-local active slice and rewrite the control plane before redispatching", async () => {
+test("extension-only local mode keeps execute on the same slice and rewrites the control plane after review", async () => {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), "pi-sdk-extension-local-proof-"));
   writeLocalPlanPack(repoRoot);
   setRuntimeSubstrate(undefined);
@@ -289,10 +289,10 @@ test("extension-only local mode can progress a repo-local active slice and rewri
         details: {
           report: {
             phase: "master_plan",
-            status: "completed",
-            summary: "local proof slice completed",
+            status: "continue",
+            summary: "local proof route planned",
             stepId: "D2",
-            evidence: ["extension-only local proof passed"],
+            evidence: ["extension-only local proof planned"],
             artifacts: ["docs/plan/active_STATUS.md"],
             risks: [],
             timestampMs: 1,
@@ -304,8 +304,97 @@ test("extension-only local mode can progress a repo-local active slice and rewri
     );
     await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
 
-    assert.equal(sentUserMessages.length, 2);
-    assert.match(String(sentUserMessages[1]?.content), /Current active slice: D3/);
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "wave_plan",
+            status: "continue",
+            summary: "local proof execute queued",
+            stepId: "D2",
+            evidence: ["wave keeps D2 active for execute"],
+            artifacts: ["docs/plan/active_WORKSET.md"],
+            risks: [],
+            timestampMs: 2,
+          },
+          historySize: 2,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "execute",
+            status: "completed",
+            summary: "execute proof landed",
+            stepId: "D2",
+            doneWhenMet: [
+              "local execute review is routed with deterministic skill preload",
+              "execute completion dispatches review without advancing the active slice",
+            ],
+            evidence: ["execute proof exercised review dispatch without accepted writeback"],
+            artifacts: ["docs/plan/active_STATUS.md"],
+            risks: [],
+            timestampMs: 3,
+          },
+          historySize: 3,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(sentUserMessages.length, 4);
+    assert.match(String(sentUserMessages[3]?.content), /Bound surface: skill `execution-reality-audit`/);
+    assert.match(String(sentUserMessages[3]?.content), /Current active slice: D2/);
+
+    const readmeAfterExecute = readFileSync(path.join(repoRoot, "docs", "plan", "README.md"), "utf8");
+    const statusAfterExecute = readFileSync(path.join(repoRoot, "docs", "plan", "active_STATUS.md"), "utf8");
+    const worksetAfterExecute = readFileSync(path.join(repoRoot, "docs", "plan", "active_WORKSET.md"), "utf8");
+
+    assert.match(readmeAfterExecute, /## Current Active Slice[\s\S]*- `D2`/);
+    assert.match(statusAfterExecute, /- active_step: `D2`/);
+    assert.match(worksetAfterExecute, /## Active Stage[\s\S]*### `D2`/);
+
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: {
+          report: {
+            phase: "review",
+            status: "completed",
+            summary: "review accepted local proof",
+            stepId: "D2",
+            doneWhenMet: [
+              "local execute review is routed with deterministic skill preload",
+              "execute completion dispatches review without advancing the active slice",
+            ],
+            evidence: ["review-owned accepted writeback exercised"],
+            artifacts: ["docs/plan/active_STATUS.md"],
+            risks: [],
+            timestampMs: 4,
+          },
+          historySize: 4,
+        },
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(sentUserMessages.length, 5);
+    assert.match(String(sentUserMessages[4]?.content), /Current active slice: D3/);
 
     const readme = readFileSync(path.join(repoRoot, "docs", "plan", "README.md"), "utf8");
     const status = readFileSync(path.join(repoRoot, "docs", "plan", "active_STATUS.md"), "utf8");
@@ -313,9 +402,9 @@ test("extension-only local mode can progress a repo-local active slice and rewri
 
     assert.match(readme, /## Current Active Slice[\s\S]*- `D3`/);
     assert.match(status, /- active_step: `D3`/);
-    assert.match(status, /done_when:[\s\S]*closeout stage keeps explicit stop-law sections after execute writeback/);
+    assert.match(status, /done_when:[\s\S]*accepted review writeback keeps explicit stop-law sections/);
     assert.match(workset, /### `D3`/);
-    assert.match(workset, /stop_boundary:[\s\S]*stop if execute-phase writeback points outside docs\/plan/);
+    assert.match(workset, /stop_boundary:[\s\S]*stop if review-owned writeback points outside docs\/plan/);
   } finally {
     setRuntimeSubstrate(undefined);
   }
@@ -422,11 +511,11 @@ test("local execute proof binds routed skills, uses stop-law completion, and red
     assert.match(String(sentUserMessages[2]?.content), /Current active slice: D2/);
     assert.match(
       String(sentUserMessages[2]?.content),
-      /Current active slice done_when: local execute review is routed with deterministic skill preload \| single-root docs\/plan writeback advances the active slice before redispatch/,
+      /Current active slice done_when: local execute review is routed with deterministic skill preload \| execute completion dispatches review without advancing the active slice/,
     );
     assert.match(
       String(sentUserMessages[2]?.content),
-      /Current active slice stop_boundary: stop if redispatch only proves prompt text and not actual docs\/plan writeback \| stop if execute completion skips explicit stop-law reporting/,
+      /Current active slice stop_boundary: stop if execute completion mutates docs\/plan before review \| stop if execute completion skips explicit stop-law reporting/,
     );
 
     const executeResult = await tool.execute?.("tool-call-3", {
@@ -436,9 +525,9 @@ test("local execute proof binds routed skills, uses stop-law completion, and red
       stepId: "D2",
       doneWhenMet: [
         "local execute review is routed with deterministic skill preload",
-        "single-root docs/plan writeback advances the active slice before redispatch",
+        "execute completion dispatches review without advancing the active slice",
       ],
-      evidence: ["execute proof exercised routed dispatch and writeback"],
+      evidence: ["execute proof exercised routed dispatch without accepted writeback"],
       artifacts: ["docs/plan/active_STATUS.md", "docs/plan/active_WORKSET.md"],
       risks: [],
     });
@@ -457,11 +546,50 @@ test("local execute proof binds routed skills, uses stop-law completion, and red
 
     assert.equal(sentUserMessages.length, 4);
     assert.match(String(sentUserMessages[3]?.content), /Bound surface: skill `execution-reality-audit`/);
-    assert.match(String(sentUserMessages[3]?.content), /Current active slice: D3/);
+    assert.match(String(sentUserMessages[3]?.content), /Current active slice: D2/);
     assert.match(
       String(sentUserMessages[3]?.content),
-      /Current active slice done_when: closeout stage keeps explicit stop-law sections after execute writeback/,
+      /Current active slice done_when: local execute review is routed with deterministic skill preload \| execute completion dispatches review without advancing the active slice/,
     );
+
+    const readmeAfterExecute = readFileSync(path.join(repoRoot, "docs", "plan", "README.md"), "utf8");
+    const statusAfterExecute = readFileSync(path.join(repoRoot, "docs", "plan", "active_STATUS.md"), "utf8");
+    const worksetAfterExecute = readFileSync(path.join(repoRoot, "docs", "plan", "active_WORKSET.md"), "utf8");
+    const runtimeAfterExecute = appendedEntries.at(-1)?.data as { autopilotOwnedPaths?: string[] } | undefined;
+
+    assert.match(readmeAfterExecute, /## Current Active Slice[\s\S]*- `D2`/);
+    assert.match(statusAfterExecute, /## Immediate Focus[\s\S]*### `D2`/);
+    assert.match(worksetAfterExecute, /## Active Stage[\s\S]*### `D2`/);
+    assert.notEqual(runtimeAfterExecute?.autopilotOwnedPaths?.includes("docs/plan/README.md"), true);
+
+    const reviewResult = await tool.execute?.("tool-call-4", {
+      phase: "review",
+      status: "continue",
+      summary: "review accepted local proof",
+      stepId: "D2",
+      doneWhenMet: [
+        "local execute review is routed with deterministic skill preload",
+        "execute completion dispatches review without advancing the active slice",
+      ],
+      evidence: ["review-owned accepted writeback exercised"],
+      artifacts: ["docs/plan/active_STATUS.md", "docs/plan/active_WORKSET.md"],
+      risks: [],
+    });
+    assert.equal(reviewResult?.details?.report?.status, "completed");
+
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: reviewResult?.details,
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(sentUserMessages.length, 5);
+    assert.match(String(sentUserMessages[4]?.content), /Current active slice: D3/);
 
     const readme = readFileSync(path.join(repoRoot, "docs", "plan", "README.md"), "utf8");
     const status = readFileSync(path.join(repoRoot, "docs", "plan", "active_STATUS.md"), "utf8");
@@ -470,9 +598,9 @@ test("local execute proof binds routed skills, uses stop-law completion, and red
 
     assert.match(readme, /## Current Active Slice[\s\S]*- `D3`/);
     assert.match(status, /## Immediate Focus[\s\S]*### `D3`/);
-    assert.match(status, /done_when:[\s\S]*closeout stage keeps explicit stop-law sections after execute writeback/);
+    assert.match(status, /done_when:[\s\S]*accepted review writeback keeps explicit stop-law sections/);
     assert.match(workset, /## Active Stage[\s\S]*### `D3`/);
-    assert.match(workset, /stop_boundary:[\s\S]*stop if execute-phase writeback points outside docs\/plan/);
+    assert.match(workset, /stop_boundary:[\s\S]*stop if review-owned writeback points outside docs\/plan/);
     assert.equal(latestRuntime?.autopilotOwnedPaths?.includes("docs/plan/README.md"), true);
     assert.equal(latestRuntime?.autopilotOwnedPaths?.includes("docs/plan/active_STATUS.md"), true);
     assert.equal(latestRuntime?.autopilotOwnedPaths?.includes("docs/plan/active_WORKSET.md"), true);

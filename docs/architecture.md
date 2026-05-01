@@ -161,7 +161,7 @@ flowchart TD
     - 当 active slice 存在时，`stepId` 必须匹配当前 slice
     - `doneWhenMet` / `stopBoundaryHit` 必须精确匹配 active slice stop law item
 11. execute / review 的 progression 由 stop-law resolver 推导，而不是只信任原始 `status`
-12. local mode 下，accepted `completed` / `done` report 会推进单根 `docs/plan/*` writeback，并把 next active slice 更新到下一个 stage 或 `PACK_COMPLETE`
+12. local mode 下，ordinary `execute/completed` 不推进 Stage Order；accepted-slice writeback 只由 `review/completed` 或 objective-terminal `done` 触发，并在写回单根 `docs/plan/*` 后重新解析 parser snapshot，确认 next active stage 或 parser-compatible `PACK_COMPLETE` truth
 
 ### 4.3 Output surfaces
 

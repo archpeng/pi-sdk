@@ -40,7 +40,7 @@ Interactive driver 当前已具备：
 - `autopilot_report` 驱动的自动续跑
 - active-slice-aware report validation，包括 `phase` / `stepId`、`doneWhenMet` / `stopBoundaryHit`、以及未知 stop-law item 的 fail-fast
 - Pi 0.68 tool allowlist fail-fast（尤其是 `autopilot_report` 缺失时的 command-side + before-agent-start guard；skill-bound phases 还要求 `read`）
-- deterministic `README / STATUS / WORKSET` writeback，以及 accepted slice completion 后的 next-slice advancement
+- deterministic `README / STATUS / WORKSET` writeback；ordinary `execute/completed` 保持同一 active slice 进入 review，只有 `review/completed` 或 objective-terminal `done` 会执行 accepted-slice next-stage / `PACK_COMPLETE` advancement，并在写回后重新解析 `docs/plan/*` 作为 proof
 - pause / resume / stop 语义
 - session-branch aware runtime-state reconstruction
 - reason-aware session replacement / fork handoff cleanup (`session_shutdown.reason` / `targetSessionFile`)
@@ -175,7 +175,7 @@ pi install /home/peng/dt-git/github/pi-sdk
 - interactive dispatch 发出的不是裸 phase prompt，而是 `[AUTOPILOT ROUTED DISPATCH]` user message：其中会声明当前 phase 的 deterministic route，并在 skill-bound phase 中预加载对应 `SKILL.md`
 - `closeout` 明确绑定到 repo-local closeout prompt surface，而不是额外发明一个 global closeout skill
 - `autopilot_report` 仍是 machine-consumable phase contract
-- execute / review 的 progression 不再只看请求的 `status`，而会根据 active slice `done_when / stop_boundary` 推导 `doneWhenMet / stopBoundaryHit`
+- execute / review 的 progression 不再只看请求的 `status`，而会根据 active slice `done_when / stop_boundary` 推导 `doneWhenMet / stopBoundaryHit`；ordinary `execute/completed` 不推进 Stage Order，review acceptance 才拥有 accepted-slice writeback
 - runtime state 会通过 `pi.appendEntry("autopilot-runtime-state", ...)` 持久化，供 reload / tree navigation / resume 重建
 - status/widget 会显式暴露 substrate mode、degraded yes/no、warning summary
 - 当 `bb` substrate 的 `memory_autopilot_status` 可达时，status/widget/overlay 会投影 objective key 与 promotion-readiness summary
@@ -313,7 +313,7 @@ Readiness / packaging mode：
 
 - 不做外部 `BB` memory / govern / autopilot truth 调用
 - 会读取 repo-local `docs/plan/*` control plane，并把它当成唯一 machine truth
-- 会在 local mode 下执行 deterministic `README / STATUS / WORKSET` writeback；accepted slice completion 会推进 next active slice 或 `PACK_COMPLETE`
+- 会在 local mode 下执行 deterministic `README / STATUS / WORKSET` writeback；ordinary `execute/completed` 不推进 Stage Order，accepted-slice writeback 只由 `review/completed` 或 objective-terminal `done` 触发，且写回后必须通过 repo-local parser readback；`PACK_COMPLETE` 只用于显式 terminal path
 - 不再宣称 dual-root `docs/active/* + docs/plan/*` mirroring
 - 会做本地 git workspace scan，用于 control-plane-aware dirty-repo guard（允许 control-plane-only dirty，阻断 foreign dirty）
 - interactive 与 CLI/headless 都可继续最小可运行
