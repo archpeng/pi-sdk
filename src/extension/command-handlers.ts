@@ -8,9 +8,10 @@ import {
   DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE,
   DEFAULT_AUTOPILOT_MAX_WAVES,
   deriveAutopilotObjectiveKey,
+  type AutopilotPhase,
 } from "../autopilot/protocol.js";
 import { beginInteractiveRuntime, type AutopilotRuntimeState } from "../autopilot/state.js";
-import type { AutopilotSubstrate } from "../substrate/index.js";
+import type { ActiveControlPlaneSnapshot, AutopilotSubstrate } from "../substrate/index.js";
 
 interface CommandHandlerRuntimeAccess {
   getRuntime(): AutopilotRuntimeState | null;
@@ -35,6 +36,37 @@ interface CommandHandlerDependencies extends CommandHandlerRuntimeAccess {
     runtime: AutopilotRuntimeState | null,
   ): Promise<boolean>;
   statusLines(runtime: AutopilotRuntimeState | null): string[];
+}
+
+export function deriveResumePhaseFromControlPlane(snapshot: ActiveControlPlaneSnapshot | null): AutopilotPhase {
+  if (!snapshot) return "master_plan";
+
+  const activeSlice = snapshot.readme.activeSlice.trim();
+  const handoff = snapshot.readme.intendedHandoff.trim().toLowerCase();
+  const owner = snapshot.activeStage.owner.trim().toLowerCase();
+  const state = snapshot.activeStage.state.trim().toLowerCase();
+  const routeText = `${handoff} ${owner} ${state}`;
+
+  if (activeSlice === "PACK_COMPLETE" || routeText.includes("closeout") || routeText.includes("autopilot-closeout")) {
+    return "closeout";
+  }
+  if (routeText.includes("execution-reality-audit") || routeText.includes("review") || routeText.includes("done_pending_review")) {
+    return "review";
+  }
+  if (routeText.includes("execute-plan") || routeText.includes("execute")) {
+    return "execute";
+  }
+  if (routeText.includes("plan-creator") || routeText.includes("replan")) {
+    return state.includes("replan") ? "replan" : "wave_plan";
+  }
+  return "master_plan";
+}
+
+async function resolveResumePhase(substrate: AutopilotSubstrate): Promise<AutopilotPhase> {
+  if (substrate.mode !== "local" || !substrate.controlPlane) return "master_plan";
+  const snapshot = await substrate.controlPlane.snapshot();
+  if (!snapshot.ok) return "master_plan";
+  return deriveResumePhaseFromControlPlane(snapshot.data);
 }
 
 export function registerAutopilotCommands(deps: CommandHandlerDependencies): void {
@@ -81,18 +113,22 @@ export function registerAutopilotCommands(deps: CommandHandlerDependencies): voi
     handler: async (args, ctx: ExtensionCommandContext) => {
       const goal = args.trim();
       let runtime = deps.getRuntime();
+      const substrate = deps.ensureSubstrate(ctx.cwd);
 
       if (!runtime) {
         if (!goal) {
           deps.notify(ctx, `Usage: /${AUTOPILOT_RESUME_COMMAND} <goal>`, "warning");
           return;
         }
-        runtime = beginInteractiveRuntime({
-          goal,
-          maxWaves: DEFAULT_AUTOPILOT_MAX_WAVES,
-          maxExecutionCyclesPerWave: DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE,
-          objectiveKey: deriveAutopilotObjectiveKey(goal, ctx.cwd),
-        });
+        runtime = {
+          ...beginInteractiveRuntime({
+            goal,
+            maxWaves: DEFAULT_AUTOPILOT_MAX_WAVES,
+            maxExecutionCyclesPerWave: DEFAULT_AUTOPILOT_MAX_CYCLES_PER_WAVE,
+            objectiveKey: deriveAutopilotObjectiveKey(goal, ctx.cwd),
+          }),
+          phase: await resolveResumePhase(substrate),
+        };
       } else if (runtime.mode === "closed" && goal) {
         runtime = beginInteractiveRuntime({
           goal,
@@ -111,7 +147,6 @@ export function registerAutopilotCommands(deps: CommandHandlerDependencies): voi
         return;
       }
 
-      const substrate = deps.ensureSubstrate(ctx.cwd);
       const resolvedGoal = goal || runtime.goal;
       const resumed: AutopilotRuntimeState = {
         ...runtime,

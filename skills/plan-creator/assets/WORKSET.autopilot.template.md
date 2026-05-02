@@ -46,9 +46,18 @@ stop_boundary:
 
 - <targeted test or proof>
 
+## Autopilot Transition Contract
+
+- `execute/completed` proves implementation evidence and dispatches same-slice `review`.
+- Do not mark or advance the active slice from execute alone unless the whole objective reports `done`.
+- `review/completed` is the accepted writeback gate that marks the reviewed slice complete and loads the next `Stage Order` item as `Active Stage`.
+- `review/continue` keeps this `Active Stage`; `needs_replan` routes to `replan`; hard stops leave this stage active for repair.
+- The next execute phase may run only after README/STATUS/WORKSET parse with the same active slice and intended handoff.
+
 ## Execution Notes
 
 - under extension autopilot, the active stage ID is the `stepId` for active-slice reports
 - skill-backed phases require `selectedTools` including `read` and `autopilot_report`
 - do not make “ask whether to continue” the default stop rule; use the active stage `done_when` / `stop_boundary`
 - review routes to `execution-reality-audit`; closeout uses the repo-local closeout prompt surface
+- keep transition contract explicit whenever the workset is repaired or superseded

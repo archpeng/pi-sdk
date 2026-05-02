@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import autopilotExtension from "../src/extension/index.ts";
 import { resolveAutopilotPhaseRoute } from "../src/autopilot/protocol.ts";
+import { deriveResumePhaseFromControlPlane } from "../src/extension/command-handlers.ts";
 import {
   buildAutopilotPhaseDispatchMessage,
   resolveAutopilotPhaseDispatch,
@@ -16,6 +17,52 @@ interface FakeCommand {
   description?: string;
   handler: (args: string, ctx: any) => Promise<void> | void;
 }
+
+
+test("deriveResumePhaseFromControlPlane resumes directly from repo-local handoff truth", () => {
+  const base = {
+    readme: {
+      activePack: {
+        planPath: "docs/plan/active_PLAN.md",
+        statusPath: "docs/plan/active_STATUS.md",
+        worksetPath: "docs/plan/active_WORKSET.md",
+      },
+      activeSlice: "P1",
+      intendedHandoff: "execute-plan",
+    },
+    activeStage: {
+      stageId: "P1",
+      owner: "execute-plan",
+      state: "READY",
+      priority: "highest",
+      objectives: [],
+      requiredDeliverables: [],
+      doneWhen: [],
+      stopBoundary: [],
+      avoid: [],
+    },
+    stageOrder: ["P1", "P2"],
+    sliceDefinitions: {},
+  };
+
+  assert.equal(deriveResumePhaseFromControlPlane(base), "execute");
+  assert.equal(
+    deriveResumePhaseFromControlPlane({
+      ...base,
+      readme: { ...base.readme, intendedHandoff: "execution-reality-audit" },
+      activeStage: { ...base.activeStage, owner: "execution-reality-audit", state: "DONE_PENDING_REVIEW" },
+    }),
+    "review",
+  );
+  assert.equal(
+    deriveResumePhaseFromControlPlane({
+      ...base,
+      readme: { ...base.readme, activeSlice: "PACK_COMPLETE", intendedHandoff: "autopilot-closeout" },
+      activeStage: { ...base.activeStage, stageId: "PACK_COMPLETE", owner: "closeout", state: "DONE" },
+    }),
+    "closeout",
+  );
+});
 
 function createFakePi() {
   const handlers = new Map<string, Array<(event: any, ctx: any) => Promise<any> | any>>();
@@ -898,6 +945,69 @@ test("/autopilot-run in local mode halts when no repo-local active control plane
     assert.match(ctx.notifications.at(-1)?.message ?? "", /repo-local active control-plane/i);
     const latestRuntime = appendedEntries.at(-1)?.data as { mode?: string } | undefined;
     assert.equal(latestRuntime?.mode, "closed");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
+
+test("/autopilot-resume without prior runtime starts from docs/plan review handoff", async () => {
+  const { pi, commands, sentUserMessages, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  setRuntimeSubstrate(
+    createFakeLocalSubstrate(ctx.cwd, {
+      async snapshot() {
+        return {
+          ok: true,
+          summary: "local control-plane snapshot loaded",
+          data: {
+            readme: {
+              activePack: {
+                planPath: "docs/plan/active_PLAN.md",
+                statusPath: "docs/plan/active_STATUS.md",
+                worksetPath: "docs/plan/active_WORKSET.md",
+              },
+              activeSlice: "P1",
+              intendedHandoff: "execution-reality-audit",
+            },
+            activeStage: {
+              stageId: "P1",
+              owner: "execution-reality-audit",
+              state: "DONE_PENDING_REVIEW",
+              priority: "highest",
+              objectives: ["review completed execution"],
+              requiredDeliverables: ["review verdict"],
+              doneWhen: ["implementation evidence accepted"],
+              stopBoundary: ["review finds unsafe tool exposure"],
+              avoid: ["skipping review"],
+            },
+            stageOrder: ["P1", "P2"],
+            sliceDefinitions: {},
+          },
+          rawText: "",
+        };
+      },
+      async advance() {
+        return {
+          ok: true,
+          summary: "unused",
+          data: { nextActiveSlice: null, updatedFiles: [] },
+          rawText: "",
+        };
+      },
+    }),
+  );
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-resume")?.handler("auto-guide-service-pi-native-mvp-v1-2026-05-02", ctx);
+
+    const latestRuntime = appendedEntries.at(-1)?.data as { phase?: string; activeSlice?: { stepId?: string } } | undefined;
+    assert.equal(latestRuntime?.phase, "review");
+    assert.equal(latestRuntime?.activeSlice?.stepId, "P1");
+    assert.equal(sentUserMessages.length, 1);
+    assert.match(String(sentUserMessages[0]?.content), /Phase: review/);
+    assert.match(String(sentUserMessages[0]?.content), /Bound surface: skill `execution-reality-audit`/);
   } finally {
     setRuntimeSubstrate(undefined);
   }

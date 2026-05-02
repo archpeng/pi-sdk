@@ -51,6 +51,14 @@ stop_boundary:
 - latest_completed_step: `<PREVIOUS_SLICE_ID_OR_NONE>`
 - intended_handoff: `execute-plan`
 
+## Autopilot Transition Contract
+
+- `execute/completed` dispatches same-slice `review`; do not advance `active_step` during execute.
+- `review/completed` accepts the slice and performs deterministic docs/plan writeback to the next active stage.
+- `review/continue` keeps `active_step` unchanged for another execute cycle.
+- `needs_replan` routes to `replan`; `blocked`/`failed` stop; `done` routes to closeout only when the whole objective is complete.
+- After accepted review, `README`, `STATUS`, and `WORKSET` must agree on the new active slice and intended handoff before another execute phase runs.
+
 ## Recently Completed
 
 ## Next Step
@@ -70,3 +78,4 @@ stop_boundary:
 - skill-backed phases require `selectedTools` including `read` and `autopilot_report`
 - use `done_when` / `stop_boundary` above instead of “ask whether to continue” as the normal continuation rule
 - review routes to `execution-reality-audit`; closeout uses the repo-local closeout prompt surface
+- transition FSM above is part of machine-compatible truth, not optional prose

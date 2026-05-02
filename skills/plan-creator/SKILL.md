@@ -18,6 +18,7 @@ metadata:
       - choose generic or single-root machine mode explicitly
       - design the smallest proof-carrying slices with explicit done_when and stop_boundary
       - align README PLAN STATUS WORKSET and repo-local `docs/plan/*` truth in the same turn
+      - encode the autopilot transition FSM explicitly so execute/review/replan/closeout dispatch does not depend on hidden chat context
       - when routed by extension autopilot, finish with exactly one autopilot_report and a matching stepId when an active slice is present
       - hand off only when the next active slice is deterministic
     avoid:
@@ -31,6 +32,7 @@ metadata:
       - active pack paths are explicit
       - active slice, validation shape, done_when, and stop_boundary are explicit
       - next handoff target is explicit
+      - autopilot transition contract is explicit for execute -> review -> writeback/replan/next-slice flow
       - machine-compatible packs keep repo-local `docs/plan/*` parser truth aligned
       - routed autopilot sessions end with one compatible autopilot_report when that protocol is in scope
 ---
@@ -76,8 +78,9 @@ Use this skill when the user wants to:
 5. **Satisfy the AutoPi local-mode parser, not just human readability.** For extension-driven local autopilot, `docs/plan/README.md` must point to exactly three active pack files; `WORKSET` must contain exact `## Stage Order` and `## Active Stage` sections; `Active Stage` must use `### \`<ID>\`` plus `Owner`, `State`, `Priority`, `目标：`, `必须交付：`, `done_when:`, `stop_boundary:`, and `必须避免：`; every active/queued stage in `Stage Order` must have a `PLAN` definition headed `#### \`<ID>\`` with `Owner`, `State`, `Priority`, `目标：`, `交付物：`, `done_when:`, `stop_boundary:`, and `必须避免：`. If these are missing, the extension can halt with `repo-local active control-plane required ... (docs/plan)` even when prose docs exist.
 6. **Enforce ID and section alignment.** For machine-compatible packs, keep slice IDs, parser-owned headings, active slice, and intended handoff aligned across `docs/plan/README.md` and the active `PLAN/STATUS/WORKSET`.
 7. **Encode the runtime-facing stop law.** When autopilot compatibility matters, make `done_when` / `stop_boundary` concrete enough that later prompt/runtime gates can use them without hidden conversation context. Keep review routing truthful and keep closeout guidance aligned with the repo-local closeout prompt surface.
-8. **Hand off only when execution is deterministic.** Pass to `execute-plan` only when the active slice is singular, bounded, named by files/surfaces, validation is explicit, stop condition is explicit, and machine truth is parseable when required.
-9. **Stay in planning when ambiguity remains.** If multiple next slices compete, validation changes, owner boundary changes, or parser truth drifts, keep refining instead of pretending the pack is ready.
+8. **Encode the transition FSM, not only prose nextAction.** Machine-compatible packs should contain an `Autopilot Transition Contract` that states: `execute/completed` dispatches same-slice `review`; `review/completed` is the accepted-slice writeback point; accepted review advances README/STATUS/WORKSET to the next stage before later `wave_plan`/`execute`; `review/continue` keeps the same active slice for another execute cycle; `needs_replan` routes to `replan`; `done` is reserved for objective/closeout completion. This prevents `completed` from being misread as terminal.
+9. **Hand off only when execution is deterministic.** Pass to `execute-plan` only when the active slice is singular, bounded, named by files/surfaces, validation is explicit, stop condition is explicit, transition contract is explicit, and machine truth is parseable when required.
+10. **Stay in planning when ambiguity remains.** If multiple next slices compete, validation changes, owner boundary changes, or parser truth drifts, keep refining instead of pretending the pack is ready.
 
 ## AVOID
 
@@ -86,6 +89,8 @@ Use this skill when the user wants to:
 - AVOID duplicate parallel packs for the same workstream.
 - AVOID drifting slice IDs, parser-owned section names, or repo-level anchors.
 - AVOID handing work to `execute-plan` before the next slice is truly deterministic.
+- AVOID relying on `nextAction` prose alone when a machine-compatible pack needs execute/review/writeback continuation.
+- AVOID treating `execute/completed` as terminal; it must route to same-slice review unless `done`/hard-stop is reported.
 - AVOID inventing a second control-plane root when the repo has not explicitly verified that contract.
 - AVOID implying that a global closeout skill exists when the routed runtime actually uses a repo-local closeout prompt surface.
 
@@ -98,6 +103,7 @@ When you finish, report:
 - active slice ID and short summary
 - exact validation shape for the active slice
 - explicit `done_when` / `stop_boundary` for the active slice when autopilot compatibility matters
+- explicit transition FSM for the current phase boundary and accepted-review writeback path
 - next handoff target (`execute-plan`, `plan-creator`, repo-local closeout prompt surface, or human decision)
 - whether the result is generic-only or single-root autopilot-compatible
 - if machine-compatible, which README anchor path now carries parser truth under `docs/plan/*`

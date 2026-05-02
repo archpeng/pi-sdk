@@ -14,10 +14,19 @@
 - active-slice phases use `stepId` equal to the active slice ID
 - skill-backed phases require `selectedTools` that include at least `read` and `autopilot_report`
 - default continuation is automatic; use `done_when` / `stop_boundary` instead of “ask whether to continue” as the normal stop law
+- `execute/completed` routes to same-slice review; accepted `review/completed` is the docs/plan writeback point for the next slice
 
 ## Verification
 
 ## Blockers / Risks
+
+## Autopilot Transition Contract
+
+- Planning phases prepare or repair parser truth; they do not claim implementation completion.
+- `execute/completed` dispatches `review` for the same active slice and must not advance `Stage Order` by itself.
+- `review/completed` accepts the active slice, writes completion evidence, and advances README/STATUS/WORKSET to the next stage or `PACK_COMPLETE`.
+- `review/continue` keeps the same active slice for another execute cycle.
+- `needs_replan` routes to `replan`; `blocked`/`failed` stops; `done` is reserved for whole-objective completion and closeout.
 
 ## Slice Definitions
 
@@ -81,4 +90,5 @@ stop_boundary:
 
 - active and queued slices carry concrete `done_when` / `stop_boundary`
 - review handoff remains explicit
+- transition FSM is explicit enough that scheduler code does not depend on hidden conversation context
 - if the workstream reaches terminal completion, closeout uses the repo-local closeout prompt surface

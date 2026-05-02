@@ -36,6 +36,8 @@ Planning/reference implications:
 5. default continuation is automatic; do not encode “ask whether to continue” as the normal stop law
 6. instead, encode continuation and stopping through explicit `done_when` / `stop_boundary`
 7. keep review truthful as `execution-reality-audit` and keep closeout truthful as the repo-local prompt surface, not a separate global closeout skill
+8. encode the phase-transition FSM explicitly; do not depend on hidden conversation context or `nextAction` prose alone
+9. treat `execute/completed` as same-slice review handoff, not as terminal completion
 
 ## Minimal machine contract
 
@@ -157,7 +159,23 @@ Notes:
 - `Active Stage` should match `README.md` current active slice
 - the active stage ID is the natural `stepId` for routed active-slice reports
 
-## 4. Writeback-friendly `STATUS`
+## 4. Autopilot transition contract
+
+Machine-compatible packs should state the continuation FSM in README and/or STATUS/WORKSET:
+
+```md
+## Autopilot Transition Contract
+
+- If active slice owner/state is `execute-plan` / `READY`, dispatch `execute` for the current active slice.
+- `execute/completed` dispatches same-slice `review`; do not advance the active slice during execute.
+- `review/completed` is the accepted-slice writeback point: mark the reviewed slice done and set the next `Stage Order` item as active.
+- `review/continue` keeps the same active slice for another execute cycle.
+- `needs_replan` dispatches `replan`; `blocked`/`failed` stop; `done` is reserved for full objective or `PACK_COMPLETE` closeout.
+```
+
+This section is not a replacement for runtime state-machine code. It makes repo-local parser truth recoverable after session restart, compaction, or manual resume.
+
+## 5. Writeback-friendly `STATUS`
 
 Even if startup parsing does not depend on `STATUS`, deterministic writeback often does.
 Prefer exact sections like:
@@ -237,6 +255,7 @@ Before calling the pack done, verify:
 8. the active slice has concrete verification proof, not only narrative intent
 9. if the repo uses routed autopilot, the active slice ID stays usable as `autopilot_report.stepId`
 10. `docs/plan/README.md`, the active pack, and the current active slice / intended handoff agree
+11. the `Autopilot Transition Contract` states execute -> review -> accepted-review writeback -> next-slice routing
 
 ## Shadow pack option
 
@@ -260,5 +279,6 @@ Stop and refine rather than pretending compatibility if any of these are true:
 - the repo needs a repo-local README anchor but none has been updated
 - the status/workset writeback shape is still ambiguous
 - the pack still encodes continuation only through vague prose instead of explicit `done_when` / `stop_boundary`
+- the pack lacks a transition contract and the scheduler would need to infer execute/review/writeback behavior from prose
 - the repo appears to need a second control-plane root that the current pack has not verified
 - routed review/closeout ownership is being claimed incorrectly
