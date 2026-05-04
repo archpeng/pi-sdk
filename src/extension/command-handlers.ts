@@ -47,7 +47,7 @@ export function deriveResumePhaseFromControlPlane(snapshot: ActiveControlPlaneSn
   const state = snapshot.activeStage.state.trim().toLowerCase();
   const routeText = `${handoff} ${owner} ${state}`;
 
-  if (activeSlice === "PACK_COMPLETE" || routeText.includes("closeout") || routeText.includes("autopilot-closeout")) {
+  if (activeSlice === "PACK_COMPLETE" || (owner === "closeout" && state.includes("done")) || handoff === "autopilot-closeout") {
     return "closeout";
   }
   if (routeText.includes("execution-reality-audit") || routeText.includes("review") || routeText.includes("done_pending_review")) {

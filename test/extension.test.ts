@@ -62,6 +62,14 @@ test("deriveResumePhaseFromControlPlane resumes directly from repo-local handoff
     }),
     "closeout",
   );
+  assert.equal(
+    deriveResumePhaseFromControlPlane({
+      ...base,
+      readme: { ...base.readme, intendedHandoff: "execute-plan" },
+      activeStage: { ...base.activeStage, owner: "execute-plan", state: "READY_CLOSEOUT_GUARD_DOCUMENTED" },
+    }),
+    "execute",
+  );
 });
 
 function createFakePi() {

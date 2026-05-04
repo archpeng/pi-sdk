@@ -6,6 +6,8 @@ Use this reference when a user wants an autopilot-compatible plan to advance acr
 
 Continuous autopilot does **not** mean jumping from an early stage to a late closeout/removal stage.
 
+It also does **not** mean treating `currentWave/maxWaves` or a human wave count as objective-completion proof. Terminal closeout requires repo-local parser truth: active slice `PACK_COMPLETE`, owner `closeout`, state `DONE`, and no non-deferred stages left in the queue.
+
 It means repeating this bounded loop:
 
 ```text
@@ -52,7 +54,7 @@ review/completed + accepted -> write evidence/residuals, activate next wave_plan
 review/continue -> execute same wave
 needs_replan -> replan
 blocked|failed -> stop
-.done -> repo-local closeout prompt only when full objective is complete
+.done -> repo-local closeout prompt only when full objective is complete and docs/plan parses as PACK_COMPLETE
 ```
 
 Important distinctions:
@@ -60,6 +62,7 @@ Important distinctions:
 - `execute/completed` is not terminal; it routes to review.
 - `review/completed` accepts or rejects the wave and writes the next active truth.
 - `done` is for the full objective or closeout, not for ordinary wave completion.
+- If a scheduler dispatches closeout while `docs/plan/*` still names a non-terminal active slice, the closeout is premature and must hand back to that slice owner/handoff.
 
 ## Multi-stage ladder guidance
 

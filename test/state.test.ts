@@ -98,6 +98,72 @@ test("advanceInteractiveRuntime queues the next wave after a completed review", 
   assert.equal(afterReview.dispatchState, "ready");
 });
 
+test("advanceInteractiveRuntime follows parser-updated active slice before max-wave closeout", () => {
+  const started = beginInteractiveRuntime({
+    goal: "complete a long local plan pack",
+    maxWaves: 5,
+    maxExecutionCyclesPerWave: 2,
+  });
+
+  const next = advanceInteractiveRuntime(
+    {
+      ...started,
+      phase: "review",
+      currentWave: 5,
+      currentCycle: 1,
+      dispatchState: "awaiting_report",
+      activeSlice: {
+        stepId: "P6",
+        owner: "execute-plan",
+        state: "READY",
+        objectives: ["next parser-selected slice"],
+        requiredDeliverables: ["proof"],
+        doneWhen: ["proof exists"],
+        stopBoundary: ["unsafe"],
+        avoid: ["premature closeout"],
+      },
+    },
+    report({ phase: "review", status: "completed", stepId: "P5", summary: "P5 accepted" }),
+  );
+
+  assert.equal(next.phase, "execute");
+  assert.equal(next.currentWave, 5);
+  assert.equal(next.currentCycle, 1);
+  assert.equal(next.dispatchState, "ready");
+});
+
+test("advanceInteractiveRuntime closes only when parser-updated active slice is PACK_COMPLETE", () => {
+  const started = beginInteractiveRuntime({
+    goal: "complete a local plan pack",
+    maxWaves: 5,
+    maxExecutionCyclesPerWave: 2,
+  });
+
+  const next = advanceInteractiveRuntime(
+    {
+      ...started,
+      phase: "review",
+      currentWave: 5,
+      currentCycle: 1,
+      dispatchState: "awaiting_report",
+      activeSlice: {
+        stepId: "PACK_COMPLETE",
+        owner: "closeout",
+        state: "DONE",
+        objectives: ["close the pack"],
+        requiredDeliverables: ["summary"],
+        doneWhen: [],
+        stopBoundary: [],
+        avoid: [],
+      },
+    },
+    report({ phase: "review", status: "completed", stepId: "P8", summary: "P8 accepted" }),
+  );
+
+  assert.equal(next.phase, "closeout");
+  assert.equal(next.dispatchState, "ready");
+});
+
 test("advanceInteractiveRuntime respects paused mode and preserves the next ready phase", () => {
   const paused = {
     ...beginInteractiveRuntime({ goal: "goal", maxWaves: 2, maxExecutionCyclesPerWave: 2 }),

@@ -22,6 +22,7 @@
 - `review/continue` keeps the same active slice and dispatches another bounded `execute` cycle.
 - `needs_replan` dispatches `replan`; `blocked`/`failed` stop; `done` is reserved for full objective or `PACK_COMPLETE` closeout.
 - `PACK_COMPLETE` with `Intended Handoff` `autopilot-closeout` is the only terminal parser state.
+- `currentWave/maxWaves`, human wave numbering, and closeout prose are not completion proof; closeout is forbidden while `Current Active Slice` is any non-`PACK_COMPLETE` stage.
 
 ## Notes
 
@@ -33,3 +34,4 @@
 - review routes to `execution-reality-audit`; closeout uses the repo-local closeout prompt surface instead of a separate global closeout skill
 - keep the `Autopilot Transition Contract` aligned with README/STATUS/WORKSET active truth
 - use `PACK_COMPLETE` only when the pack is truly terminal and that matches repo convention
+- if closeout is dispatched while a non-terminal active slice remains, treat it as premature scheduler routing and hand back to the active slice owner/handoff

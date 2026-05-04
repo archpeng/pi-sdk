@@ -202,6 +202,34 @@ function closeRuntime(runtime: AutopilotRuntimeState, report: AutopilotReport): 
   };
 }
 
+function phaseForActiveSlice(activeSlice: AutopilotActiveSlice | undefined): AutopilotPhase | null {
+  if (!activeSlice) return null;
+  const stepId = activeSlice.stepId.trim();
+  const routeText = `${activeSlice.owner} ${activeSlice.state}`.toLowerCase();
+
+  if (stepId === "PACK_COMPLETE") return "closeout";
+  if (routeText.includes("execution-reality-audit") || routeText.includes("review") || routeText.includes("done_pending_review")) return "review";
+  if (routeText.includes("execute-plan") || routeText.includes("execute")) return "execute";
+  if (routeText.includes("plan-creator") || routeText.includes("replan")) return routeText.includes("replan") ? "replan" : "wave_plan";
+  return null;
+}
+
+function routeAfterAcceptedReview(nextBase: AutopilotRuntimeState, report: AutopilotReport, runtime: AutopilotRuntimeState): AutopilotRuntimeState {
+  const activeSlicePhase = runtime.activeSlice?.stepId !== report.stepId
+    ? phaseForActiveSlice(runtime.activeSlice)
+    : null;
+  if (activeSlicePhase && activeSlicePhase !== "closeout") {
+    return transition(nextBase, activeSlicePhase, runtime.currentWave, 1);
+  }
+  if (activeSlicePhase === "closeout") {
+    return transition(nextBase, "closeout", runtime.currentWave, runtime.currentCycle);
+  }
+  if (runtime.currentWave >= runtime.maxWaves) {
+    return transition(nextBase, "closeout", runtime.currentWave, runtime.currentCycle);
+  }
+  return transition(nextBase, "replan", runtime.currentWave + 1, 1, "roadmap");
+}
+
 export function haltInteractiveRuntime(runtime: AutopilotRuntimeState, reason: string): AutopilotRuntimeState {
   const warning = reason.trim();
   return {
@@ -251,10 +279,7 @@ export function advanceInteractiveRuntime(runtime: AutopilotRuntimeState, report
         case "needs_replan":
           return transition(nextBase, "replan", runtime.currentWave, runtime.currentCycle, "same_wave");
         case "completed":
-          if (runtime.currentWave >= runtime.maxWaves) {
-            return transition(nextBase, "closeout", runtime.currentWave, runtime.currentCycle);
-          }
-          return transition(nextBase, "replan", runtime.currentWave + 1, 1, "roadmap");
+          return routeAfterAcceptedReview(nextBase, report, runtime);
         default:
           return transition(nextBase, "closeout", runtime.currentWave, runtime.currentCycle);
       }
