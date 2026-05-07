@@ -4,6 +4,7 @@ import {
   AUTOPILOT_RUNTIME_ENTRY_TYPE,
   advanceInteractiveRuntime,
   beginInteractiveRuntime,
+  phaseForActiveSlice,
   restoreInteractiveRuntime,
 } from "../src/autopilot/state.ts";
 import type {
@@ -56,6 +57,22 @@ function report(overrides: Partial<AutopilotReport>): AutopilotReport {
     ...overrides,
   };
 }
+
+test("phaseForActiveSlice routes review-ready local parser truth to review", () => {
+  assert.equal(
+    phaseForActiveSlice({
+      stepId: "F9.structural-target-zero-and-no-debt-reset",
+      owner: "execution-reality-audit",
+      state: "REVIEW_READY",
+      objectives: ["review F9A target-zero evidence"],
+      requiredDeliverables: ["accepted review verdict"],
+      doneWhen: [],
+      stopBoundary: [],
+      avoid: ["rerunning execute before review"],
+    }),
+    "review",
+  );
+});
 
 test("beginInteractiveRuntime starts in running mode with master_plan ready", () => {
   const runtime = beginInteractiveRuntime({
@@ -162,6 +179,47 @@ test("advanceInteractiveRuntime closes only when parser-updated active slice is 
 
   assert.equal(next.phase, "closeout");
   assert.equal(next.dispatchState, "ready");
+});
+
+test("advanceInteractiveRuntime resynchronizes stale execute runtime to review-ready parser truth", () => {
+  const started = beginInteractiveRuntime({
+    goal: "complete a local plan pack",
+    maxWaves: 5,
+    maxExecutionCyclesPerWave: 3,
+  });
+
+  const next = advanceInteractiveRuntime(
+    {
+      ...started,
+      phase: "execute",
+      currentWave: 1,
+      currentCycle: 1,
+      dispatchState: "awaiting_report",
+      activeSlice: {
+        stepId: "F9.structural-target-zero-and-no-debt-reset",
+        owner: "execution-reality-audit",
+        state: "REVIEW_READY",
+        objectives: ["review F9A target-zero evidence"],
+        requiredDeliverables: ["accepted review verdict"],
+        doneWhen: ["F9A verification passed"],
+        stopBoundary: ["review finds behavior movement"],
+        avoid: ["rerunning execute before review"],
+      },
+    },
+    report({
+      phase: "execute",
+      status: "completed",
+      stepId: "F9.structural-target-zero-and-no-debt-reset",
+      summary: "execute was redundantly dispatched",
+      doneWhenMet: ["F9A verification passed"],
+    }),
+  );
+
+  assert.equal(next.phase, "review");
+  assert.equal(next.currentWave, 1);
+  assert.equal(next.currentCycle, 1);
+  assert.equal(next.dispatchState, "ready");
+  assert.match(next.lastReportSummary ?? "", /overrides stale runtime phase execute/);
 });
 
 test("advanceInteractiveRuntime respects paused mode and preserves the next ready phase", () => {

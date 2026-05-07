@@ -106,6 +106,24 @@ test("resolveAutopilotReportStopLaw derives the runtime status from active-slice
   assert.deepEqual(replanned.stopBoundaryHit, ["replan if verification fails"]);
 });
 
+test("resolveAutopilotReportStopLaw normalizes markdown trailing punctuation", () => {
+  const completed = resolveAutopilotReportStopLaw(
+    {
+      doneWhen: ["all verification passed"],
+      stopBoundary: ["replan if verification fails"],
+    },
+    {
+      status: "continue",
+      doneWhenMet: ["all verification passed."],
+      stopBoundaryHit: [],
+    },
+  );
+
+  assert.equal(completed.derivedStatus, "completed");
+  assert.deepEqual(completed.doneWhenMet, ["all verification passed"]);
+  assert.deepEqual(completed.unexpectedDoneWhenMet, []);
+});
+
 test("resolveAutopilotPhaseRoute rejects mismatched deterministic routes", () => {
   const reviewRoute = resolveAutopilotPhaseRoute("review");
 

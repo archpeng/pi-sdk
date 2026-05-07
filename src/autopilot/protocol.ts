@@ -500,8 +500,17 @@ export function deriveAutopilotObjectiveKey(goal: string, cwd: string): string {
   return `objective:${createHash("sha1").update(`${cwd}\u0000${goal}`).digest("hex").slice(0, 12)}`;
 }
 
+function normalizeStopLawItem(item: string): string {
+  return item
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[。．.]+$/u, "")
+    .replace(/[；;]+$/u, "")
+    .trim();
+}
+
 function normalizeStopLawItems(items: string[] | undefined): string[] {
-  return [...new Set((items ?? []).map((item) => item.trim()).filter((item) => item.length > 0))];
+  return [...new Set((items ?? []).map(normalizeStopLawItem).filter((item) => item.length > 0))];
 }
 
 export interface AutopilotReportStopLawResolution {

@@ -202,7 +202,7 @@ function closeRuntime(runtime: AutopilotRuntimeState, report: AutopilotReport): 
   };
 }
 
-function phaseForActiveSlice(activeSlice: AutopilotActiveSlice | undefined): AutopilotPhase | null {
+export function phaseForActiveSlice(activeSlice: AutopilotActiveSlice | undefined): AutopilotPhase | null {
   if (!activeSlice) return null;
   const stepId = activeSlice.stepId.trim();
   const routeText = `${activeSlice.owner} ${activeSlice.state}`.toLowerCase();
@@ -243,6 +243,27 @@ export function haltInteractiveRuntime(runtime: AutopilotRuntimeState, reason: s
 }
 
 export function advanceInteractiveRuntime(runtime: AutopilotRuntimeState, report: AutopilotReport): AutopilotRuntimeState {
+  const currentActiveSlicePhase = phaseForActiveSlice(runtime.activeSlice);
+  const reportMatchesActiveSlice = !runtime.activeSlice?.stepId || runtime.activeSlice.stepId === report.stepId;
+  if (
+    reportMatchesActiveSlice &&
+    (currentActiveSlicePhase === "review" || currentActiveSlicePhase === "closeout") &&
+    currentActiveSlicePhase !== runtime.phase &&
+    report.phase !== "closeout"
+  ) {
+    return transition(
+      {
+        ...runtime,
+        updatedAtMs: report.timestampMs,
+        lastReportTimestampMs: report.timestampMs,
+        lastReportSummary: `repo-local control-plane phase ${currentActiveSlicePhase} overrides stale runtime phase ${runtime.phase}: ${report.summary}`,
+      },
+      currentActiveSlicePhase,
+      runtime.currentWave,
+      runtime.currentCycle,
+    );
+  }
+
   const nextBase: AutopilotRuntimeState = {
     ...runtime,
     updatedAtMs: report.timestampMs,
