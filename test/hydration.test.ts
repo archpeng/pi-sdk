@@ -7,6 +7,7 @@ test("buildPhaseHydrationSections keeps empty hydration out of prompts", () => {
     workspaceSummary: [],
     planSummary: [],
     controlPlaneSummary: [],
+    roadmapSummary: [],
     recallSummary: [],
     autopilotStatusSummary: [],
     autopilotDecisionSummary: [],
@@ -23,6 +24,7 @@ test("buildPhaseHydrationSections includes minimal phase-specific BB context", (
     workspaceSummary: ["workspace: main, clean"],
     planSummary: ["plan: P1.S2 active"],
     controlPlaneSummary: ["active-slice: A2 owner=execute-plan state=READY"],
+    roadmapSummary: ["roadmap-bootstrap: docs/plan idle=yes", "roadmap: docs/roadmap/pms-pi-tool-surface-roadmap.md"],
     recallSummary: ["memory: prior adapter failure path requires fail-open summary"],
     autopilotStatusSummary: ["autopilot-status: queue=idle lag=0", "promotion-readiness: canary=promote"],
     autopilotDecisionSummary: [
@@ -37,6 +39,8 @@ test("buildPhaseHydrationSections includes minimal phase-specific BB context", (
   assert.equal(sections[0], "Substrate context:");
   assert.equal(sections.some((line) => line.includes("workspace: main, clean")), true);
   assert.equal(sections.some((line) => line.includes("active-slice: A2 owner=execute-plan state=READY")), true);
+  assert.equal(sections.some((line) => line.includes("roadmap-bootstrap: docs/plan idle=yes")), true);
+  assert.equal(sections.some((line) => line.includes("roadmap: docs/roadmap/pms-pi-tool-surface-roadmap.md")), true);
   assert.equal(sections.some((line) => line.includes("memory: prior adapter failure")), true);
   assert.equal(sections.some((line) => line.includes("autopilot-status: queue=idle lag=0")), true);
   assert.equal(sections.some((line) => line.includes("promotion-readiness: canary=promote")), true);

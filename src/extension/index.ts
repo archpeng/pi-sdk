@@ -32,6 +32,7 @@ import {
   isAutopilotToolDetails,
 } from "../autopilot/protocol.js";
 import {
+  AUTOPILOT_IDLE_PLAN_BOOTSTRAP_STATE,
   AUTOPILOT_RUNTIME_ENTRY_TYPE,
   advanceInteractiveRuntime,
   haltInteractiveRuntime,
@@ -255,7 +256,7 @@ export default function autopilotExtension(pi: ExtensionAPI): void {
       notify(ctx, reason, "warning");
       return;
     }
-    if (built.substrateMode === "local" && !built.activeSlice) {
+    if (built.substrateMode === "local" && !built.activeSlice && runtime.activeSlice?.stepId !== AUTOPILOT_IDLE_PLAN_BOOTSTRAP_STATE) {
       const reason = missingLocalControlPlaneReason(ctx.cwd);
       runtime = haltInteractiveRuntime(runtime, reason);
       persistRuntime(pi, runtime);

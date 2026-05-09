@@ -13,6 +13,7 @@ import {
   type AutopilotReport,
 } from "../autopilot/protocol.js";
 import {
+  AUTOPILOT_IDLE_PLAN_BOOTSTRAP_STATE,
   haltInteractiveRuntime,
   registerAutopilotOwnedPaths,
   type AutopilotRuntimeState,
@@ -169,22 +170,24 @@ export async function buildInteractivePrompt(
   });
 
   const warnings = [...runtime.warnings, ...runWorkspace.warnings, ...hydration.warnings].slice(-5);
-  const activeSlice = runWorkspace.controlPlane
-    ? {
-        stepId: runWorkspace.controlPlane.activeStage.stageId,
-        owner: runWorkspace.controlPlane.activeStage.owner,
-        state: runWorkspace.controlPlane.activeStage.state,
-        objectives: [...runWorkspace.controlPlane.activeStage.objectives],
-        requiredDeliverables: [...runWorkspace.controlPlane.activeStage.requiredDeliverables],
-        ...(runWorkspace.controlPlane.activeStage.doneWhen
-          ? { doneWhen: [...runWorkspace.controlPlane.activeStage.doneWhen] }
-          : {}),
-        ...(runWorkspace.controlPlane.activeStage.stopBoundary
-          ? { stopBoundary: [...runWorkspace.controlPlane.activeStage.stopBoundary] }
-          : {}),
-        avoid: [...runWorkspace.controlPlane.activeStage.avoid],
-      }
-    : undefined;
+  const activeSlice = runtime.activeSlice?.stepId === AUTOPILOT_IDLE_PLAN_BOOTSTRAP_STATE
+    ? runtime.activeSlice
+    : runWorkspace.controlPlane
+      ? {
+          stepId: runWorkspace.controlPlane.activeStage.stageId,
+          owner: runWorkspace.controlPlane.activeStage.owner,
+          state: runWorkspace.controlPlane.activeStage.state,
+          objectives: [...runWorkspace.controlPlane.activeStage.objectives],
+          requiredDeliverables: [...runWorkspace.controlPlane.activeStage.requiredDeliverables],
+          ...(runWorkspace.controlPlane.activeStage.doneWhen
+            ? { doneWhen: [...runWorkspace.controlPlane.activeStage.doneWhen] }
+            : {}),
+          ...(runWorkspace.controlPlane.activeStage.stopBoundary
+            ? { stopBoundary: [...runWorkspace.controlPlane.activeStage.stopBoundary] }
+            : {}),
+          avoid: [...runWorkspace.controlPlane.activeStage.avoid],
+        }
+      : undefined;
   const dirtyWorkspace = runWorkspace.workspace.find((entry) => entry.path === cwd && entry.dirty_files > 0);
   const controlPlaneReadmePath = path.relative(substrate.config.cwd, path.join(substrate.config.planDocsPath, "README.md")).replace(/\\/g, "/");
   const prompt = buildPhasePrompt(runtime.phase, {
@@ -221,6 +224,7 @@ export async function buildInteractivePrompt(
 }
 
 function shouldWriteAcceptedSliceCompletion(report: AutopilotReport): boolean {
+  if (report.phase === "closeout") return false;
   if (report.status === "done") return true;
   return report.phase === "review" && report.status === "completed";
 }

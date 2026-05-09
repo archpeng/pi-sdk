@@ -2,6 +2,7 @@ import { buildAutopilotArtifactSummaryProjection } from "../autopilot/artifact-s
 import { buildAutopilotBenchmarkProjection } from "../autopilot/benchmark-projection.js";
 import { buildAutopilotDecisionProjection } from "../autopilot/decision-projection.js";
 import { buildAutopilotHistoryProjection } from "../autopilot/history-projection.js";
+import { loadRoadmapBootstrapSnapshot } from "./roadmap.js";
 import type { AutopilotPhase, AutopilotReport } from "../shared/types.js";
 import type {
   ActiveControlPlaneSnapshot,
@@ -118,10 +119,14 @@ function shouldIncludePlans(phase: AutopilotPhase): boolean {
 }
 
 export async function preparePhaseHydration(input: PreparePhaseHydrationInput): Promise<PhaseHydrationSnapshot> {
+  const roadmapBootstrap = input.phase === "master_plan" || input.phase === "wave_plan" || input.phase === "replan" || input.phase === "closeout"
+    ? loadRoadmapBootstrapSnapshot(input.substrate.config.cwd, input.substrate.config.planDocsPath)
+    : null;
   const hydration: PhaseHydrationSnapshot = {
     workspaceSummary: shouldIncludeWorkspace(input.phase) ? summarizeWorkspace(input.runWorkspace.workspace) : [],
     planSummary: shouldIncludePlans(input.phase) ? summarizePlans(input.runWorkspace.plans) : [],
     controlPlaneSummary: shouldIncludePlans(input.phase) ? summarizeControlPlane(input.runWorkspace.controlPlane) : [],
+    roadmapSummary: roadmapBootstrap?.summaryLines ?? [],
     recallSummary: [],
     autopilotStatusSummary: [],
     autopilotDecisionSummary: [],
@@ -228,6 +233,7 @@ export function buildPhaseHydrationSections(_phase: AutopilotPhase, hydration: P
     ...hydration.workspaceSummary,
     ...hydration.planSummary,
     ...hydration.controlPlaneSummary,
+    ...hydration.roadmapSummary,
     ...hydration.recallSummary,
     ...hydration.autopilotStatusSummary,
     ...hydration.autopilotDecisionSummary,

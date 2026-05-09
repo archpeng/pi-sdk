@@ -74,6 +74,41 @@ test("buildPhasePrompt includes protocol header, routing contract, and substrate
   assert.match(prompt, /Execute the current wave/);
 });
 
+test("buildPhasePrompt gives idle roadmap bootstrap explicit successor-pack instructions", () => {
+  const phaseRoute = resolveAutopilotPhaseRoute("wave_plan");
+  const prompt = buildPhasePrompt("wave_plan", {
+    goal: "continue from roadmap",
+    currentWave: 6,
+    maxWaves: 5,
+    currentCycle: 1,
+    maxExecutionCyclesPerWave: 3,
+    recentReports: [],
+    activeSlice: {
+      stepId: "IDLE_PLAN_BOOTSTRAP",
+      owner: "plan-creator",
+      state: "READY",
+      objectives: ["materialize the next roadmap-approved active plan pack"],
+      requiredDeliverables: ["parser-compatible README/PLAN/STATUS/WORKSET successor pack mounted from docs/roadmap"],
+      doneWhen: ["successor pack triplet exists under docs/plan and README points at it"],
+      stopBoundary: ["stop if no roadmap-approved successor is named or the repo-local parser contract is ambiguous"],
+      avoid: ["dispatching execute without an active successor pack"],
+    },
+    phaseRoute,
+    phaseRoutingMatrix: formatAutopilotPhaseRoutingMatrixLines(),
+    substrateContext: [
+      "Substrate context:",
+      "- roadmap-bootstrap: docs/plan idle=yes",
+      "- roadmap: docs/roadmap/pms-pi-tool-surface-roadmap.md — Roadmap: PMS Pi Tool Surface Capability Release",
+    ],
+  });
+
+  assert.match(prompt, /Current active slice: IDLE_PLAN_BOOTSTRAP/);
+  assert.match(prompt, /Bootstrap the next active plan pack from roadmap truth/);
+  assert.match(prompt, /docs\/plan\/README\.md` idle state plus `docs\/roadmap\/\*`/);
+  assert.match(prompt, /Create or repair a parser-compatible `docs\/plan\/<pack>_\{PLAN,STATUS,WORKSET\}\.md` triplet/);
+  assert.match(prompt, /Do not dispatch execute until the successor pack parses as the active control plane/);
+});
+
 test("resolveAutopilotReportStopLaw derives the runtime status from active-slice stop law", () => {
   const completed = resolveAutopilotReportStopLaw(
     {

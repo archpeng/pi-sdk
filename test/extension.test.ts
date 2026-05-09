@@ -1529,6 +1529,96 @@ test("objective-terminal done writes parser-compatible PACK_COMPLETE and dispatc
   }
 });
 
+test("terminal closeout with a selected successor dispatches plan-creator for roadmap bootstrap", async () => {
+  const { pi, handlers, commands, tools, sentUserMessages, appendedEntries } = createFakePi();
+  const ctx = createFakeContext();
+  const packCompleteStage = {
+    stageId: "PACK_COMPLETE",
+    owner: "closeout",
+    state: "DONE",
+    priority: "terminal",
+    objectives: ["close the pack through the repo-local closeout prompt surface"],
+    requiredDeliverables: ["final closeout summary and successor handoff"],
+    doneWhen: [],
+    stopBoundary: [],
+    avoid: ["dispatching execute without an active successor pack"],
+  };
+  setRuntimeSubstrate(
+    createFakeLocalSubstrate(ctx.cwd, {
+      async snapshot() {
+        return {
+          ok: true,
+          summary: "local control-plane snapshot loaded",
+          data: {
+            readme: {
+              activePack: {
+                planPath: "docs/plan/closed_PLAN.md",
+                statusPath: "docs/plan/closed_STATUS.md",
+                worksetPath: "docs/plan/closed_WORKSET.md",
+              },
+              activeSlice: "PACK_COMPLETE",
+              intendedHandoff: "autopilot-closeout",
+            },
+            activeStage: packCompleteStage,
+            stageOrder: ["PACK_COMPLETE"],
+            sliceDefinitions: {},
+          },
+          rawText: "",
+        };
+      },
+      async advance() {
+        return {
+          ok: true,
+          summary: "unused",
+          data: { nextActiveSlice: null, updatedFiles: [] },
+          rawText: "",
+        };
+      },
+    }),
+  );
+  autopilotExtension(pi);
+
+  try {
+    await commands.get("autopilot-resume")?.handler("continue roadmap packs", ctx);
+    const tool = tools.find((candidate) => candidate.name === "autopilot_report");
+    assert.ok(tool?.execute);
+
+    const closeoutResult = await tool.execute?.("tool-call-closeout", {
+      phase: "closeout",
+      status: "done",
+      summary: "pack complete; selected successor from roadmap",
+      stepId: "PACK_COMPLETE",
+      nextAction: "plan-creator mount selected successor from docs/roadmap",
+      evidence: ["SELECTED_SUCCESSOR_PACK: pms-pi-tool-surface-next"],
+      artifacts: ["NEXT_AUTOPILOT_RUN: /autopilot-run pms-pi-tool-surface-next"],
+      risks: [],
+    });
+    await runHandlers(
+      handlers,
+      "tool_result",
+      {
+        toolName: "autopilot_report",
+        details: closeoutResult?.details,
+      },
+      ctx,
+    );
+    await runHandlers(handlers, "turn_end", { toolResults: [], message: { role: "assistant", content: [] } }, ctx);
+
+    assert.equal(sentUserMessages.length, 2);
+    assert.match(String(sentUserMessages[1]?.content), /Phase: wave_plan/);
+    assert.match(String(sentUserMessages[1]?.content), /Bound surface: skill `plan-creator`/);
+    assert.match(String(sentUserMessages[1]?.content), /Current active slice: IDLE_PLAN_BOOTSTRAP/);
+    assert.match(String(sentUserMessages[1]?.content), /Bootstrap the next active plan pack from roadmap truth/);
+    const latestRuntime = appendedEntries.at(-1)?.data as { phase?: string; mode?: string; activeSlice?: { stepId?: string; owner?: string } } | undefined;
+    assert.equal(latestRuntime?.mode, "running");
+    assert.equal(latestRuntime?.phase, "wave_plan");
+    assert.equal(latestRuntime?.activeSlice?.stepId, "IDLE_PLAN_BOOTSTRAP");
+    assert.equal(latestRuntime?.activeSlice?.owner, "plan-creator");
+  } finally {
+    setRuntimeSubstrate(undefined);
+  }
+});
+
 test("local edit/write tool calls register best-effort autopilot-owned paths", async () => {
   const { pi, handlers, commands, appendedEntries } = createFakePi();
   const ctx = createFakeContext();

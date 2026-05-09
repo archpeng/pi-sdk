@@ -111,6 +111,19 @@ export function buildPhasePrompt(phase: AutopilotPhase, context: AutopilotPrompt
     "",
   ];
 
+  if (phase === "wave_plan" && context.activeSlice?.stepId === "IDLE_PLAN_BOOTSTRAP") {
+    return [
+      ...shared,
+      "Bootstrap the next active plan pack from roadmap truth.",
+      "Expectations:",
+      "1. Treat `docs/plan/README.md` idle state plus `docs/roadmap/*` as the source for successor selection.",
+      "2. Choose exactly one roadmap-approved next pack or use the selected successor from closeout if present.",
+      "3. Create or repair a parser-compatible `docs/plan/<pack>_{PLAN,STATUS,WORKSET}.md` triplet and update `docs/plan/README.md` to point at it.",
+      "4. The mounted pack must expose a concrete first active slice, `done_when`, `stop_boundary`, and intended handoff `execute-plan`.",
+      "5. Do not dispatch execute until the successor pack parses as the active control plane.",
+    ].join("\n");
+  }
+
   switch (phase) {
     case "master_plan":
       return [

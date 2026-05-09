@@ -405,10 +405,19 @@ export interface CreateAutopilotSubstrateDependencies {
   fetchImpl?: typeof fetch;
 }
 
+export interface RoadmapBootstrapSnapshot {
+  planReadmeIdle: boolean;
+  roadmapFiles: string[];
+  selectedSuccessor?: string | undefined;
+  latestClosedPack?: string | undefined;
+  summaryLines: string[];
+}
+
 export interface PhaseHydrationSnapshot {
   workspaceSummary: string[];
   planSummary: string[];
   controlPlaneSummary: string[];
+  roadmapSummary: string[];
   recallSummary: string[];
   autopilotStatusSummary: string[];
   autopilotDecisionSummary: string[];

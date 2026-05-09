@@ -181,6 +181,48 @@ test("advanceInteractiveRuntime closes only when parser-updated active slice is 
   assert.equal(next.dispatchState, "ready");
 });
 
+test("advanceInteractiveRuntime can bootstrap a successor plan pack after terminal closeout", () => {
+  const started = beginInteractiveRuntime({
+    goal: "complete a roadmap pack",
+    maxWaves: 5,
+    maxExecutionCyclesPerWave: 2,
+  });
+
+  const next = advanceInteractiveRuntime(
+    {
+      ...started,
+      phase: "closeout",
+      currentWave: 5,
+      currentCycle: 1,
+      dispatchState: "awaiting_report",
+      activeSlice: {
+        stepId: "PACK_COMPLETE",
+        owner: "closeout",
+        state: "DONE",
+        objectives: ["close the pack"],
+        requiredDeliverables: ["summary"],
+        doneWhen: [],
+        stopBoundary: [],
+        avoid: [],
+      },
+    },
+    report({
+      phase: "closeout",
+      status: "done",
+      summary: "pack closed with selected successor",
+      nextAction: "plan-creator mount selected successor from roadmap",
+      evidence: ["SELECTED_SUCCESSOR_PACK: next-pack"],
+    }),
+  );
+
+  assert.equal(next.mode, "running");
+  assert.equal(next.phase, "wave_plan");
+  assert.equal(next.dispatchState, "ready");
+  assert.equal(next.activeSlice?.stepId, "IDLE_PLAN_BOOTSTRAP");
+  assert.equal(next.activeSlice?.owner, "plan-creator");
+  assert.deepEqual(next.activeSlice?.doneWhen, ["successor pack triplet exists under docs/plan and README points at it"]);
+});
+
 test("advanceInteractiveRuntime resynchronizes stale execute runtime to review-ready parser truth", () => {
   const started = beginInteractiveRuntime({
     goal: "complete a local plan pack",

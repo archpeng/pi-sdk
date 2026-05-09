@@ -55,3 +55,4 @@ export * from "./pi-autoload-proof.js";
 export * from "./pi-command-smoke.js";
 export * from "./pi-bb-backed-smoke.js";
 export * from "./control-plane.js";
+export * from "./roadmap.js";

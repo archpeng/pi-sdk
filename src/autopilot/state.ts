@@ -18,6 +18,7 @@ export const AUTOPILOT_RUNTIME_ENTRY_TYPE = "autopilot-runtime-state";
 export const AUTOPILOT_RUNTIME_MODES = ["idle", "running", "paused", "stopping", "closed"] as const;
 export const AUTOPILOT_DISPATCH_STATES = ["idle", "ready", "awaiting_report", "closed"] as const;
 export const AUTOPILOT_REPLAN_REASONS = ["same_wave", "roadmap", "cycle_exhausted"] as const;
+export const AUTOPILOT_IDLE_PLAN_BOOTSTRAP_STATE = "IDLE_PLAN_BOOTSTRAP";
 
 export type AutopilotRuntimeMode = (typeof AUTOPILOT_RUNTIME_MODES)[number];
 export type AutopilotDispatchState = (typeof AUTOPILOT_DISPATCH_STATES)[number];
@@ -230,6 +231,27 @@ function routeAfterAcceptedReview(nextBase: AutopilotRuntimeState, report: Autop
   return transition(nextBase, "replan", runtime.currentWave + 1, 1, "roadmap");
 }
 
+function shouldBootstrapPlanAfterCloseout(runtime: AutopilotRuntimeState, report: AutopilotReport): boolean {
+  if (report.phase !== "closeout" || report.status !== "done") return false;
+  if (runtime.activeSlice?.stepId !== "PACK_COMPLETE") return false;
+  const nextAction = report.nextAction?.toLowerCase() ?? "";
+  const haystack = [
+    report.summary,
+    report.nextAction ?? "",
+    ...(report.evidence ?? []),
+    ...(report.artifacts ?? []),
+  ].join("\n").toLowerCase();
+
+  return (
+    nextAction.includes("plan-creator") ||
+    nextAction.includes("successor") ||
+    nextAction.includes("roadmap") ||
+    haystack.includes("selected_successor_pack") ||
+    haystack.includes("successor_mount_command") ||
+    haystack.includes("next_autopilot_run")
+  );
+}
+
 export function haltInteractiveRuntime(runtime: AutopilotRuntimeState, reason: string): AutopilotRuntimeState {
   const warning = reason.trim();
   return {
@@ -272,6 +294,27 @@ export function advanceInteractiveRuntime(runtime: AutopilotRuntimeState, report
   };
 
   if (report.phase === "closeout") {
+    if (shouldBootstrapPlanAfterCloseout(runtime, report)) {
+      return transition(
+        {
+          ...nextBase,
+          activeSlice: {
+            stepId: AUTOPILOT_IDLE_PLAN_BOOTSTRAP_STATE,
+            owner: "plan-creator",
+            state: "READY",
+            objectives: ["materialize the next roadmap-approved active plan pack"],
+            requiredDeliverables: ["parser-compatible README/PLAN/STATUS/WORKSET successor pack mounted from docs/roadmap"],
+            doneWhen: ["successor pack triplet exists under docs/plan and README points at it"],
+            stopBoundary: ["stop if no roadmap-approved successor is named or the repo-local parser contract is ambiguous"],
+            avoid: ["dispatching execute without an active successor pack"],
+          },
+        },
+        "wave_plan",
+        runtime.currentWave + 1,
+        1,
+        "roadmap",
+      );
+    }
     return closeRuntime(nextBase, report);
   }
 
