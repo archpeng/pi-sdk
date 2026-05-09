@@ -25,7 +25,9 @@ Canonical routed ownership:
 - `execute` -> `execute-plan`
 - `review` -> `execution-reality-audit`
 - `replan` -> `plan-creator`
-- `closeout` -> repo-local closeout prompt surface (`autopilot-closeout`)
+- terminal `closeout` -> repo-local closeout prompt surface (`autopilot-closeout`)
+
+Non-terminal stage closeout rows such as `W2.closeout`, `P3.closeout`, or `phase.closeout` are **not** routed to the built-in closeout prompt surface. They must be ordinary `execute-plan` slices that record verdicts/residuals and then route through same-slice `review`. Reserve `closeout` for terminal `PACK_COMPLETE` truth.
 
 Planning/reference implications:
 
@@ -35,9 +37,10 @@ Planning/reference implications:
 4. when an active slice exists, `autopilot_report.stepId` must match that slice ID
 5. default continuation is automatic; do not encode “ask whether to continue” as the normal stop law
 6. instead, encode continuation and stopping through explicit `done_when` / `stop_boundary`
-7. keep review truthful as `execution-reality-audit` and keep closeout truthful as the repo-local prompt surface, not a separate global closeout skill
+7. keep review truthful as `execution-reality-audit` and keep terminal closeout truthful as the repo-local prompt surface, not a separate global closeout skill
 8. encode the phase-transition FSM explicitly; do not depend on hidden conversation context or `nextAction` prose alone
 9. treat `execute/completed` as same-slice review handoff, not as terminal completion
+10. keep non-terminal `*.closeout` rows owned by `execute-plan`; if a non-terminal closeout row is parsed with owner `repo-local closeout prompt surface`, repair the pack before handoff
 
 ## Minimal machine contract
 
@@ -167,13 +170,26 @@ Machine-compatible packs should state the continuation FSM in README and/or STAT
 ## Autopilot Transition Contract
 
 - If active slice owner/state is `execute-plan` / `READY`, dispatch `execute` for the current active slice.
+- Non-terminal `*.closeout` stage rows are `execute-plan` writeback slices, not built-in closeout phases.
 - `execute/completed` dispatches same-slice `review`; do not advance the active slice during execute.
 - `review/completed` is the accepted-slice writeback point: mark the reviewed slice done and set the next `Stage Order` item as active.
 - `review/continue` keeps the same active slice for another execute cycle.
-- `needs_replan` dispatches `replan`; `blocked`/`failed` stop; `done` is reserved for full objective or `PACK_COMPLETE` closeout.
+- `needs_replan` dispatches `replan`; `blocked`/`failed` stop; `done` is reserved for full objective or terminal `PACK_COMPLETE` closeout.
+- Built-in closeout prompt surface is reserved for `PACK_COMPLETE` only.
 ```
 
 This section is not a replacement for runtime state-machine code. It makes repo-local parser truth recoverable after session restart, compaction, or manual resume.
+
+## 4.1 Stage closeout vs terminal closeout
+
+Use this rule for extension-driven local autopilot packs:
+
+| kind | active slice example | owner | intended handoff | route |
+|---|---|---|---|---|
+| stage closeout | `W2.closeout`, `W3.closeout`, `P3.closeout` | `execute-plan` | `execute-plan` | `wave_plan -> execute -> review -> accepted writeback` |
+| terminal closeout | `PACK_COMPLETE` | `closeout` | `autopilot-closeout` / repo-local closeout prompt surface | `closeout` |
+
+Do not assign `repo-local closeout prompt surface` to non-terminal `*.closeout` rows. If the planner needs a workstream closeout before the full pack is done, model it as an `execute-plan` writeback slice with explicit deliverables, validation, residual ledger, and same-slice review.
 
 ## 5. Writeback-friendly `STATUS`
 
@@ -256,6 +272,7 @@ Before calling the pack done, verify:
 9. if the repo uses routed autopilot, the active slice ID stays usable as `autopilot_report.stepId`
 10. `docs/plan/README.md`, the active pack, and the current active slice / intended handoff agree
 11. the `Autopilot Transition Contract` states execute -> review -> accepted-review writeback -> next-slice routing
+12. non-terminal `*.closeout` rows are owned by `execute-plan`; only `PACK_COMPLETE` uses terminal closeout ownership/handoff
 
 ## Shadow pack option
 
@@ -282,3 +299,4 @@ Stop and refine rather than pretending compatibility if any of these are true:
 - the pack lacks a transition contract and the scheduler would need to infer execute/review/writeback behavior from prose
 - the repo appears to need a second control-plane root that the current pack has not verified
 - routed review/closeout ownership is being claimed incorrectly
+- a non-terminal `*.closeout` row uses owner `repo-local closeout prompt surface` instead of `execute-plan`

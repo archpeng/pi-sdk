@@ -52,7 +52,8 @@ Do **not** imply that every repo or every manual planning session has these runt
 - deterministic routed ownership here is `master_plan`, `wave_plan`, and `replan`
 - `execute` routes to `execute-plan`
 - `review` routes to `execution-reality-audit`
-- `closeout` routes to the repo-local closeout prompt surface, not a separate global closeout skill
+- terminal `closeout` routes to the repo-local closeout prompt surface, not a separate global closeout skill
+- non-terminal `*.closeout` stage rows are ordinary `execute-plan` writeback slices that route through same-slice `review`; reserve the built-in closeout surface for `PACK_COMPLETE`
 - skill-backed phases require `selectedTools` that still include `read` and `autopilot_report`
 - end the phase with exactly one `autopilot_report`
 - when the prompt provides an active slice, set `stepId` to that slice ID
@@ -78,11 +79,11 @@ Use this skill when the user wants to:
 4. **Build or repair the pack.** Keep `PLAN` stable around goal, scope, non-goals, deliverables, and verification. Keep `STATUS` as current truth. Keep `WORKSET` as the executable queue. If machine parsing matters, also maintain repo-level `README.md` anchors and exact section names like `Active Pack`, `Current Active Slice`, `Stage Order`, and `Active Stage`. Keep `docs/plan/*` as the sole parser-owned control plane; if another root seems required, stop and replan instead of inventing a mirror.
 5. **Satisfy the AutoPi local-mode parser, not just human readability.** For extension-driven local autopilot, `docs/plan/README.md` must point to exactly three active pack files; `WORKSET` must contain exact `## Stage Order` and `## Active Stage` sections; `Active Stage` must use `### \`<ID>\`` plus `Owner`, `State`, `Priority`, `目标：`, `必须交付：`, `done_when:`, `stop_boundary:`, and `必须避免：`; every active/queued stage in `Stage Order` must have a `PLAN` definition headed `#### \`<ID>\`` with `Owner`, `State`, `Priority`, `目标：`, `交付物：`, `done_when:`, `stop_boundary:`, and `必须避免：`. If these are missing, the extension can halt with `repo-local active control-plane required ... (docs/plan)` even when prose docs exist.
 6. **Enforce ID and section alignment.** For machine-compatible packs, keep slice IDs, parser-owned headings, active slice, and intended handoff aligned across `docs/plan/README.md` and the active `PLAN/STATUS/WORKSET`.
-7. **Encode the runtime-facing stop law.** When autopilot compatibility matters, make `done_when` / `stop_boundary` concrete enough that later prompt/runtime gates can use them without hidden conversation context. Keep review routing truthful and keep closeout guidance aligned with the repo-local closeout prompt surface.
+7. **Encode the runtime-facing stop law.** When autopilot compatibility matters, make `done_when` / `stop_boundary` concrete enough that later prompt/runtime gates can use them without hidden conversation context. Keep review routing truthful as `execution-reality-audit`; keep terminal closeout truthful as the repo-local closeout prompt surface.
 8. **Encode the transition FSM, not only prose nextAction.** Machine-compatible packs should contain an `Autopilot Transition Contract` that states: `wave_plan/completed` dispatches `execute`; `execute/completed` dispatches same-wave `review`; `review/completed` is the accepted-wave writeback point; accepted review advances README/STATUS/WORKSET to the next deterministic wave before later `wave_plan`/`execute`; `review/continue` keeps the same wave for another execute cycle; `needs_replan` routes to `replan`; `blocked`/`failed` stop; `done` is reserved for objective/closeout completion. This prevents `completed` from being misread as terminal.
 9. **For long objectives, build a continuous wave ladder.** If the user wants automatic advancement across multiple stages, split the roadmap into a queue of waves where every wave has exactly one dominant owner boundary, `wave_plan -> execute -> review`, a required `autopilot_report`, accepted-review writeback, and a named next wave. Do not jump from an early stage to a late removal/closeout stage just because the scheduler can continue. Never encode `currentWave/maxWaves` or a human wave count as objective-completion proof; terminal closeout requires parser truth `PACK_COMPLETE`.
-10. **Add a hard closeout guard.** For autopilot-compatible packs, state explicitly that closeout is forbidden unless README and WORKSET parse as active slice `PACK_COMPLETE`, owner `closeout`, state `DONE`, and no non-deferred stages remain. If closeout is dispatched while another slice is active, it is a premature scheduler route and must hand back to the active slice owner instead of claiming objective completion.
-11. **Make stop and replan machine-actionable.** Each wave must state what `doneWhenMet` should prove, what `stopBoundaryHit` should contain if unsafe, and whether review acceptance routes to the next `wave_plan`, same-wave `execute`, `replan`, or repo-local closeout prompt.
+10. **Separate stage closeout from terminal closeout.** Non-terminal rows such as `W2.closeout`, `P3.closeout`, or `phase.closeout` must be owned by `execute-plan` and treated as ordinary stage-closeout writeback slices: record verdicts/residuals, run validation, then route to same-slice `review`. The built-in closeout prompt surface is reserved for terminal parser truth only: active slice `PACK_COMPLETE`, owner `closeout`, state `DONE`, and no non-deferred stages remain. If a non-terminal `*.closeout` row is parsed with owner `repo-local closeout prompt surface`, repair the pack before handing off.
+11. **Make stop and replan machine-actionable.** Each wave must state what `doneWhenMet` should prove, what `stopBoundaryHit` should contain if unsafe, and whether review acceptance routes to the next `wave_plan`, same-wave `execute`, `replan`, or terminal repo-local closeout prompt.
 12. **Hand off only when execution is deterministic.** Pass to `execute-plan` only when the active slice/wave is singular, bounded, named by files/surfaces, validation is explicit, stop condition is explicit, transition contract is explicit, and machine truth is parseable when required.
 13. **Stay in planning when ambiguity remains.** If multiple next waves compete, validation changes, owner boundary changes, or parser truth drifts, keep refining instead of pretending the pack is ready.
 
@@ -98,6 +99,7 @@ Use this skill when the user wants to:
 - AVOID broad automatic jumps such as `P5 -> P8`; encode intervening proof-carrying waves and let accepted reviews advance one wave at a time.
 - AVOID inventing a second control-plane root when the repo has not explicitly verified that contract.
 - AVOID implying that a global closeout skill exists when the routed runtime actually uses a repo-local closeout prompt surface.
+- AVOID assigning `repo-local closeout prompt surface` to non-terminal `*.closeout` stage rows; those must stay `execute-plan` owned until terminal `PACK_COMPLETE`.
 
 ## Validation / Output Contract
 
@@ -110,7 +112,7 @@ When you finish, report:
 - explicit `done_when` / `stop_boundary` for the active slice when autopilot compatibility matters
 - explicit transition FSM for the current phase boundary and accepted-review writeback path
 - for multi-wave objectives, the continuous wave ladder and the exact next wave after accepted review
-- next handoff target (`execute-plan`, `plan-creator`, repo-local closeout prompt surface, or human decision)
+- next handoff target (`execute-plan`, `plan-creator`, terminal repo-local closeout prompt surface, or human decision)
 - whether the result is generic-only or single-root autopilot-compatible
 - if machine-compatible, which README anchor path now carries parser truth under `docs/plan/*`
 - if routed by extension autopilot, whether the phase ended with one compatible `autopilot_report` and the active-slice `stepId` stayed aligned
