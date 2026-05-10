@@ -111,6 +111,19 @@ that when the pack is actually closed out.
 
 Keep the repo-local `docs/plan/*` pack current in the same execution turn.
 
+## Alignment gate after execution or accepted review
+
+Before reporting `completed` from an execute-phase writeback, or after implementing an accepted-review writeback, verify:
+
+1. README `Current Active Slice` and README status current slice match.
+2. PLAN `ACTIVE_SLICE`, STATUS `active_step`, STATUS `Immediate Focus`, and WORKSET `Active Stage` match the same full slice ID.
+3. README `Intended Handoff` matches the active WORKSET `Owner` / `State`.
+4. WORKSET `Active Stage` is the first pending `Stage Order` row.
+5. Every `Stage Order` ID has an exact PLAN block heading `#### \`<stage id>\``.
+6. Do not switch to `PACK_COMPLETE` unless every non-deferred stage before it is complete or explicitly finite-blocked.
+
+If a repo provides a local guard such as `pnpm lint:autopilot-plan`, run it. Otherwise do these checks manually before ending the phase.
+
 ## Alignment checklist after execution
 
 Verify:

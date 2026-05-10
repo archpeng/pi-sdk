@@ -257,6 +257,22 @@ For single-root packs:
 3. never invent a second roadmap or mirror outside `docs/plan/*` just to paper over drift
 4. if surrounding docs imply another planning root, stop and replan the contract before writing back
 
+## Parser alignment gate before handoff
+
+Before a machine-compatible pack is declared ready or repaired, verify:
+
+1. README `Current Active Slice` and README status `Current active slice` match.
+2. PLAN `ACTIVE_SLICE`, STATUS `active_step`, STATUS `Immediate Focus`, and WORKSET `Active Stage` match the same full slice ID.
+3. README `Intended Handoff` matches the active WORKSET `Owner` / `State`:
+   - `execute-plan` + `READY` -> `execute-plan`
+   - `execution-reality-audit` + `READY_FOR_REVIEW` -> `execution-reality-audit`
+   - terminal `PACK_COMPLETE` + closeout owner -> repo-local closeout prompt surface
+4. WORKSET `Active Stage` is the first pending row in `Stage Order`.
+5. Every `Stage Order` ID has an exact PLAN block heading `#### \`<stage id>\``; short aliases such as `GQL-1` are not enough when the stage ID is `GQL-1.low-risk-adapter-pattern`.
+6. Hot `docs/plan/` contains only the README, baseline files, and one active PLAN/STATUS/WORKSET triplet.
+
+If a repo provides a local guard such as `pnpm lint:autopilot-plan`, run it. Otherwise do these checks manually and record the evidence.
+
 ## Alignment checklist
 
 Before calling the pack done, verify:

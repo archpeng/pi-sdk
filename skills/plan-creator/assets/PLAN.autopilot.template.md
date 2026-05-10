@@ -86,6 +86,16 @@ stop_boundary:
 
 1. <next drift>
 
+## Parser Alignment Gate
+
+Before handoff, verify README/PLAN/STATUS/WORKSET alignment:
+
+1. README current slice/status slice, PLAN `ACTIVE_SLICE`, STATUS `active_step`/`Immediate Focus`, and WORKSET `Active Stage` are identical full IDs.
+2. WORKSET `Active Stage` is the first pending `Stage Order` row.
+3. Every `Stage Order` row has an exact full-ID PLAN block: `#### \`<stage id>\``.
+4. README `Intended Handoff` matches active WORKSET `Owner` / `State`.
+5. Do not use `PACK_COMPLETE` until all previous non-deferred stages are complete.
+
 ## Exit Criteria
 
 - active and queued slices carry concrete `done_when` / `stop_boundary`

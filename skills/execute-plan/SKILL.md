@@ -16,7 +16,7 @@ metadata:
     strategy:
       - read governing pack and code first
       - decide generic or single-root machine execution mode
-      - anchor one bounded active slice with explicit done_when and stop_boundary
+      - confirm README/PLAN/STATUS/WORKSET active slice, first pending row, full-ID PLAN block, and handoff before changing files
       - implement minimum meaningful changes and run matching verification
       - write evidence and active truth back before claiming done in repo-local `docs/plan/*`
       - when routed by extension autopilot, finish with exactly one autopilot_report and matching stepId before exiting the phase
@@ -72,12 +72,12 @@ Use this skill when the user wants to:
 
 1. **Read the governing truth first.** Read `AGENTS.md`, the repo-level plan anchor if present, the active `PLAN/STATUS/WORKSET`, the relevant code/tests/scripts, and `references/autopilot-control-plane-execution.md` when machine parsing matters. If the repo appears to rely on another execution root, confirm that contract explicitly before editing; otherwise keep `docs/plan/*` as the only machine truth.
 2. **Choose the execution mode explicitly.** Treat the pack as generic only when no runtime or parser depends on exact markdown truth. Treat it as machine-compatible when markdown is parsed deterministically, exact headings are expected, or the user asks for autopilot/local-mode compatibility. For machine-compatible repos, execute against a **single-root** machine pack where `docs/plan/*` is the active truth
-3. **Anchor one bounded active slice.** Confirm the current active slice is singular, bounded, named by files/surfaces, and has explicit validation, `done_when`, and `stop_boundary`. If not, repair the pack or return to `plan-creator` instead of improvising.
+3. **Anchor one bounded active slice.** Confirm the current active slice is singular, bounded, named by files/surfaces, and has explicit validation, `done_when`, and `stop_boundary`. In machine-compatible repos also confirm README current slice/status slice, PLAN `ACTIVE_SLICE`, STATUS `active_step`/`Immediate Focus`, WORKSET `Active Stage`, and the first pending `Stage Order` row all name that same full slice ID, and that PLAN has the exact heading `#### \`<slice id>\``. If not, repair the pack or return to `plan-creator` instead of improvising.
 4. **Implement the minimum meaningful change.** Work on the current slice only. Avoid broad unbounded edits or parallel execution tracks.
 5. **Run the smallest matching verification.** Use docs checks for docs-only work, targeted tests for local code changes, lint/typecheck/build for integration-sensitive work, or a clear manual checklist when no automation exists.
-6. **Write evidence back before claiming done.** Update `STATUS`, `WORKSET`, and any repo-level anchor with the latest evidence, current state, and current or next active slice truth. In machine-compatible repos, keep README/PLAN/STATUS/WORKSET section names and slice IDs aligned under `docs/plan/*`. If another root seems required, stop and replan instead of inventing a mirror.
+6. **Write evidence back before claiming done.** Update `STATUS`, `WORKSET`, and any repo-level anchor with the latest evidence, current state, and current or next active slice truth. In machine-compatible repos, keep README/PLAN/STATUS/WORKSET section names and full slice IDs aligned under `docs/plan/*`; if a slice is accepted, mark it done and activate exactly the next pending `Stage Order` row, never `PACK_COMPLETE` unless all non-deferred stages are done. If another root seems required, stop and replan instead of inventing a mirror.
 7. **Respect the routed handoff boundary.** When autopilot compatibility matters, keep review truth aligned with `execution-reality-audit` and keep closeout truth aligned with the repo-local closeout prompt surface. Do not invent a new closeout skill contract from this execution lane.
-8. **Keep the next handoff deterministic.** If multiple next slices compete, validation changed, or machine truth drifted, stop execution and bounce back to `plan-creator`.
+8. **Keep the next handoff deterministic.** If multiple next slices compete, validation changed, machine truth drifted, the first pending row is unclear, or exact-ID PLAN/WORKSET matching fails, stop execution and bounce back to `plan-creator`.
 
 ## AVOID
 
@@ -85,8 +85,8 @@ Use this skill when the user wants to:
 - AVOID broad, changelog-style progress updates with no bounded slice.
 - AVOID claiming completion from code changes alone.
 - AVOID creating parallel packs for the same workstream.
-- AVOID leaving parser-owned truth stale in machine-compatible repos.
-- AVOID continuing coding after active slice IDs or exact headings have drifted apart.
+- AVOID leaving parser-owned truth stale or partially advanced in machine-compatible repos.
+- AVOID continuing coding after active slice IDs, exact PLAN headings, first pending row, or intended handoff have drifted apart.
 - AVOID inventing a second control-plane root when the repo has not explicitly verified that contract.
 - AVOID claiming that closeout is a global skill-owned phase when the routed runtime binds it to a repo-local prompt surface.
 
@@ -100,7 +100,7 @@ When you finish, report:
 - actual verification performed
 - whether the active slice met `done_when`, hit `stop_boundary`, or needs successor work
 - next handoff target (`execute-plan`, `plan-creator`, repo-local closeout prompt surface, or human decision)
-- whether the machine-compatible pack remains autopilot-compatible
+- whether the machine-compatible pack remains autopilot-compatible, including active-slice and handoff alignment
 - if routed by extension autopilot, whether the phase ended with one compatible `autopilot_report` and the active-slice `stepId` stayed aligned
 
 ## References
